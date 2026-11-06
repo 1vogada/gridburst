@@ -69,6 +69,8 @@ canvas{touch-action:none;display:block}
     <button id="again">Play again</button>
   </div>
 </div>
+<script src="pieces.js"></script>
+<script src="scoring.js"></script>
 <script>
 (() => {
 'use strict';
@@ -77,28 +79,6 @@ const cv = $('#c'), ctx = cv.getContext('2d');
 const N = 8;
 const COLORS = ['#f23d3d','#ff8c1a','#ffc61a','#3fcf3a','#16c3ee','#3566f2','#9a4dff','#ff4fa8'];
 const FONT = '"Fredoka","Baloo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
-
-// ---------- shapes ----------
-// [pattern, base weight, family]; rotations of one shape share a family
-const SHAPE_DEFS = [
-  ['1',.8,'dot'],['11',1.1,'i2'],['1/1',1.1,'i2'],['111',1.2,'i3'],['1/1/1',1.2,'i3'],['1111',1,'i4'],['1/1/1/1',1,'i4'],['11111',.6,'i5'],['1/1/1/1/1',.6,'i5'],
-  ['11/11',1.4,'o2'],['111/111/111',.45,'o3'],['111/111',.8,'r6'],['11/11/11',.8,'r6'],
-  ['10/11',1,'v3'],['01/11',1,'v3'],['11/10',1,'v3'],['11/01',1,'v3'],
-  ['10/10/11',.8,'l4'],['01/01/11',.8,'l4'],['11/10/10',.8,'l4'],['11/01/01',.8,'l4'],
-  ['111/100',.8,'l4'],['111/001',.8,'l4'],['100/111',.8,'l4'],['001/111',.8,'l4'],
-  ['100/100/111',.45,'l5'],['001/001/111',.45,'l5'],['111/100/100',.45,'l5'],['111/001/001',.45,'l5'],
-  ['111/010',.8,'t4'],['010/111',.8,'t4'],['10/11/10',.8,'t4'],['01/11/01',.8,'t4'],
-  ['011/110',.7,'s4'],['110/011',.7,'s4'],['10/11/01',.7,'s4'],['01/11/10',.7,'s4'],
-];
-function parse(s){
-  const rows = s.split('/'), cells = [];
-  rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '1') cells.push([r, c]); }));
-  return { cells, h: rows.length, w: rows[0].length };
-}
-const SHAPES = SHAPE_DEFS.map(([s, wt, fam], id) => {
-  const p = parse(s);
-  return { ...p, wt, fam, id, n: p.cells.length, hard: p.cells.length >= 5 || fam === 's4' };
-});
 
 // ---------- grid logic ----------
 const emptyGrid = () => Array.from({ length: N }, () => Array(N).fill(-1));
@@ -122,106 +102,11 @@ function firstFit(g, p){
   for (let r = 0; r <= N - p.h; r++) for (let c = 0; c <= N - p.w; c++) if (canPlace(g, p, r, c)) return [r, c];
   return null;
 }
-// ---------- piece selection ----------
-// Candidate sets are drawn with weights that ramp toward big shapes as the score grows and
-// that avoid shapes from the last two sets. Each candidate is then played out (every order,
-// beam search over placements) and scored by the lines it can clear and the board it leaves.
-// Crowded boards get the best-fitting set; open boards pick among the top half for variety.
-const PERMS = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
-const CANDS = 28, BEAM = 3;
-let recent = [];   // shape ids of the last two sets, newest first
-const difficulty = () => Math.min(1, score / 6000);
-function drawShape(d, picked, calm){
-  const last = recent[0] || [], prev = recent[1] || [];
-  let tot = 0;
-  const w = SHAPES.map(s => {
-    let x = s.wt;
-    if (!calm){ if (s.hard) x *= 1 + 1.3 * d; else if (s.n <= 2) x *= 1 - 0.5 * d; }
-    if (last.includes(s.id)) x *= 0.2; else if (prev.includes(s.id)) x *= 0.55;
-    for (const q of picked){ if (q.id === s.id) x *= 0.15; else if (q.fam === s.fam) x *= 0.5; }
-    tot += x; return x;
-  });
-  let x = Math.random() * tot;
-  for (let i = 0; i < SHAPES.length; i++){ x -= w[i]; if (x <= 0) return SHAPES[i]; }
-  return SHAPES[SHAPES.length - 1];
-}
-function occOf(g){ const o = new Uint8Array(N * N); for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) o[r * N + c] = g[r][c] >= 0 ? 1 : 0; return o; }
-function fitsO(o, s, r, c){ for (const [dr, dc] of s.cells) if (o[(r + dr) * N + c + dc]) return false; return true; }
-function putO(o, s, r, c){
-  const n = o.slice();
-  for (const [dr, dc] of s.cells) n[(r + dr) * N + c + dc] = 1;
-  let fr = 0, fc = 0, lines = 0;
-  for (let i = r; i < r + s.h; i++){ let f = 1; for (let j = 0; j < N; j++) if (!n[i * N + j]){ f = 0; break; } if (f){ fr |= 1 << i; lines++; } }
-  for (let j = c; j < c + s.w; j++){ let f = 1; for (let i = 0; i < N; i++) if (!n[i * N + j]){ f = 0; break; } if (f){ fc |= 1 << j; lines++; } }
-  if (lines) for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if ((fr >> i & 1) || (fc >> j & 1)) n[i * N + j] = 0;
-  return { o: n, lines };
-}
-// Board roughness, lower is better: filled/empty edges, sealed single holes, and fill.
-function rough(o){
-  let t = 0, iso = 0, fill = 0;
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++){
-    const k = i * N + j, v = o[k]; fill += v;
-    if (j < N - 1 && v !== o[k + 1]) t++;
-    if (i < N - 1 && v !== o[k + N]) t++;
-    if (!v && (j === 0 || o[k - 1]) && (j === N - 1 || o[k + 1]) && (i === 0 || o[k - N]) && (i === N - 1 || o[k + N])) iso++;
-  }
-  return t + iso * 6 + fill * 0.5;
-}
-// Best outcome for playing this set on board o, or -Infinity if the search found no order that fits all three.
-function planSet(o0, set){
-  let best = -Infinity;
-  const seen = new Set();
-  for (const pm of PERMS){
-    const key = pm.map(i => set[i].id).join();
-    if (seen.has(key)) continue; seen.add(key);
-    let beam = [{ o: o0, lines: 0, hits: 0, multi: 0 }];
-    for (const i of pm){
-      const s = set[i], next = [];
-      for (const st of beam){
-        for (let r = 0; r <= N - s.h; r++) for (let c = 0; c <= N - s.w; c++){
-          if (!fitsO(st.o, s, r, c)) continue;
-          const { o, lines } = putO(st.o, s, r, c);
-          const ns = { o, lines: st.lines + lines, hits: st.hits + (lines ? 1 : 0), multi: st.multi + (lines > 1 ? lines * lines : 0) };
-          ns.v = ns.lines * 12 + ns.multi * 4 + ns.hits * 6 - rough(o);
-          next.push(ns);
-        }
-      }
-      if (!next.length){ beam = null; break; }
-      next.sort((a, b) => b.v - a.v); beam = next.slice(0, BEAM);
-    }
-    if (beam && beam[0].v > best) best = beam[0].v;
-  }
-  return best;
+function newSet(){
+  const col = shuffledColors();
+  return GBPieces.newSet(grid, pm, { score, best }).map((p, i) => ({ ...p, color: col[i] }));
 }
 function shuffledColors(){ const a = COLORS.map((_, i) => i); for (let i = a.length - 1; i > 0; i--){ const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
-function newSet(){
-  const o = occOf(grid), d = difficulty();
-  let fill = 0; for (const v of o) fill += v;
-  const crowd = fill / (N * N);
-  const cands = [];
-  const tryDraws = (count, calm) => {
-    for (let t = 0; t < count; t++){
-      const set = []; for (let k = 0; k < 3; k++) set.push(drawShape(d, set, calm));
-      const v = planSet(o, set);
-      if (v > -Infinity) cands.push({ set, v });
-    }
-  };
-  tryDraws(CANDS, false);
-  if (!cands.length) tryDraws(80, true);
-  let chosen;
-  if (cands.length){
-    cands.sort((a, b) => b.v - a.v);
-    const help = Math.min(1, crowd * 1.6) * (1 - 0.35 * d) + 0.15;
-    const pool = Math.max(1, Math.round(cands.length * (1 - Math.min(1, help)) * 0.6));
-    chosen = cands[Math.random() * pool | 0].set;
-  } else {
-    const set = []; for (let k = 0; k < 3; k++) set.push(drawShape(d, set, true));
-    chosen = set;
-  }
-  recent = [chosen.map(s => s.id), recent[0] || []];
-  const col = shuffledColors();
-  return chosen.map((s, i) => ({ s: s.id, cells: s.cells, w: s.w, h: s.h, color: col[i] }));
-}
 
 // ---------- state ----------
 const KEY = 'gridburst-state-v1', BKEY = 'gridburst-best', MKEY = 'gridburst-muted';
@@ -230,17 +115,18 @@ const store = {
   set(k, v){ try { localStorage.setItem(k, v); } catch {} },
   del(k){ try { localStorage.removeItem(k); } catch {} },
 };
-let grid = emptyGrid(), tray = [], score = 0, dispScore = 0, streak = 0, quiet = 0, over = false;
+let grid = emptyGrid(), tray = [], score = 0, dispScore = 0, over = false;
+let sc = GBScore.init(), pm = GBPieces.init();   // scoring state and piece-picker memory, both saved
 let best = +store.get(BKEY) || 0;
 let muted = store.get(MKEY) === '1';
 let bestAtStart = best;
 
-function save(){ store.set(KEY, JSON.stringify({ grid, tray, score, streak, quiet, recent })); }
+function save(){ store.set(KEY, JSON.stringify({ grid, tray, score, sc, pm })); }
 function load(){
   try {
     const s = JSON.parse(store.get(KEY));
     if (s && Array.isArray(s.grid) && s.grid.length === N && Array.isArray(s.tray)){
-      grid = s.grid; tray = s.tray; score = s.score | 0; dispScore = score; streak = s.streak | 0; quiet = s.quiet | 0; recent = Array.isArray(s.recent) ? s.recent : [];
+      grid = s.grid; tray = s.tray; score = s.score | 0; dispScore = score; sc = s.sc && typeof s.sc === 'object' ? s.sc : GBScore.init(); pm = s.pm && typeof s.pm === 'object' ? s.pm : GBPieces.init();
       if (tray.every(p => !p)) tray = newSet();
       return true;
     }
@@ -248,7 +134,7 @@ function load(){
   return false;
 }
 function reset(){
-  grid = emptyGrid(); score = 0; dispScore = 0; streak = 0; quiet = 0; over = false; recent = [];
+  grid = emptyGrid(); score = 0; dispScore = 0; over = false; sc = GBScore.init(); pm = GBPieces.init();
   bestAtStart = best;
   tray = newSet(); spawnT = performance.now();
   clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0; rings.length = 0; fly = null;
@@ -452,11 +338,10 @@ function place(i, r, c){
   const p = tray[i], now = performance.now();
   for (const [dr, dc] of p.cells){ grid[r + dr][c + dc] = p.color; placed.push({ r: r + dr, c: c + dc, t0: now }); }
   tray[i] = null;
-  let gain = p.cells.length;
   const { rows, cols } = fullLines(grid);
   const n = rows.length + cols.length;
+  let res;
   if (n){
-    streak++; quiet = 0;
     const seen = new Set(); let sx = 0, sy = 0, k = 0;
     const add = (rr2, cc2) => {
       const key = rr2 * N + cc2; if (seen.has(key)) return; seen.add(key);
@@ -472,13 +357,14 @@ function place(i, r, c){
     cols.forEach(cc2 => { beams.push({ col: cc2, t0: now }); for (let rr2 = 0; rr2 < N; rr2++) add(rr2, cc2); });
     rows.forEach(rr2 => grid[rr2].fill(-1));
     cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) grid[rr2][cc2] = -1; });
-    const lineScore = 10 * n * n * streak;
-    gain += lineScore;
+    const boardClear = grid.every(row => row.every(v => v < 0));
+    res = GBScore.place(sc, { cells: p.cells.length, lines: n, rows: rows.length, cols: cols.length, boardClear });
+    const streak = res.combo;
     const cx = sx / k + L.cell / 2, cy = sy / k + L.cell / 2;
-    popup('+' + lineScore, cx, cy, L.cell * 0.9, '#fff');
+    if (res.lineScore) popup('+' + res.lineScore, cx, cy, L.cell * 0.9, '#fff');
     if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.3, L.cell * (0.85 + Math.min(n, 5) * 0.08), 'gold', true);
     if (streak >= 2) popup('Combo ' + streak, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
-    if (grid.every(row => row.every(v => v < 0))){ gain += 300; sfx.boardClear(); flashT = now; flashA = 0.6; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
+    if (boardClear){ sfx.boardClear(); flashT = now; flashA = 0.6; popup(res.bonus ? 'Board clear! +' + res.bonus : 'Board clear!', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
     $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
     const huge = n >= 3 || streak >= 4;
     if (huge){
@@ -487,12 +373,12 @@ function place(i, r, c){
       for (let q = 0; q < 14 + n * 4; q++) sparks.push({ x: cx + (Math.random() - .5) * L.b * 0.8, y: cy + (Math.random() - .5) * L.b * 0.5, t0: now + Math.random() * 300, life: 500 + Math.random() * 400, s: L.cell * (0.3 + Math.random() * 0.35) });
     }
     shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, huge ? 20 : 14);
-    sfx.clear(n, streak); buzz(huge ? [30, 30, 40, 30, 60] : n >= 2 ? [20, 30, 30] : 18);
+    sfx.clear(n, Math.max(1, streak)); buzz(huge ? [30, 30, 40, 30, 60] : n >= 2 ? [20, 30, 30] : 18);
   } else {
-    quiet++; if (quiet >= 3) streak = 0;
+    res = GBScore.place(sc, { cells: p.cells.length, lines: 0, rows: 0, cols: 0, boardClear: false });
     sfx.place(); buzz(8);
   }
-  score += gain;
+  score += res.gain;
   if (score > best){ best = score; store.set(BKEY, String(best)); }
   if (tray.every(x => !x)){ tray = newSet(); spawnT = now; }
   updateHud();
@@ -513,7 +399,8 @@ function gameOver(){
 function updateHud(force){
   $('#best').textContent = best;
   const st = $('#streak');
-  if (streak >= 2){ st.textContent = 'Combo x' + streak; st.classList.add('on'); } else st.classList.remove('on');
+  const label = GBScore.comboLabel(sc);
+  if (label){ st.textContent = label; st.classList.add('on'); } else st.classList.remove('on');
   if (force) $('#score').textContent = score;
 }
 $('#mute').textContent = muted ? '🔇' : '🔊';

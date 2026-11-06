@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#16226a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Gridburst</title>
+<style>
+:root{--bg1:#3149b8;--bg2:#121b57;--txt:#fff;--gold:#ffd23f}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+html{background:var(--bg2)}
+body{background:radial-gradient(130% 75% at 50% 0%,var(--bg1),var(--bg2));display:flex;flex-direction:column;align-items:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+header{width:100%;max-width:520px;padding:10px 16px 0}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.best{font-size:16px;font-weight:800;color:var(--gold);display:flex;gap:6px;align-items:center;text-shadow:0 2px 0 rgba(0,0,0,.25)}
+.btns{display:flex;gap:8px}
+button.icon{background:rgba(255,255,255,.14);border:0;color:#fff;width:44px;height:44px;border-radius:14px;font-size:20px;cursor:pointer}
+button.icon:active{transform:scale(.94)}
+.score{font-size:52px;line-height:1.05;font-weight:900;text-align:center;letter-spacing:1px;text-shadow:0 4px 0 rgba(0,0,0,.25);margin-top:-6px}
+.streak{height:20px;text-align:center;font-size:15px;font-weight:800;color:#ffb3f0;opacity:0;transition:opacity .2s}
+.streak.on{opacity:1}
+canvas{touch-action:none;display:block}
+#over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,40,.75);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);padding:16px}
+#over.show{display:flex;animation:fade .3s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.card{text-align:center;width:100%;max-width:340px;background:linear-gradient(#2a3fa8,#18236b);border-radius:24px;padding:28px 20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.45),inset 0 2px 0 rgba(255,255,255,.18)}
+.t1{font-size:26px;font-weight:900;margin-bottom:14px}
+.lbl{font-size:14px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:1px}
+.big{font-size:56px;font-weight:900;line-height:1.1;margin:2px 0 6px}
+.nb{display:none;color:var(--gold);font-weight:900;font-size:18px;margin-bottom:6px}
+.nb.on{display:block;animation:pop .6s}
+@keyframes pop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+#again{margin-top:18px;width:100%;height:56px;border:0;border-radius:16px;font-size:20px;font-weight:900;color:#2b1600;background:linear-gradient(#ffe066,#ffb703);box-shadow:0 5px 0 #c77c00;cursor:pointer}
+#again:active{transform:translateY(3px);box-shadow:0 2px 0 #c77c00}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="best"><span>👑</span><span id="best">0</span></div>
+    <div class="btns">
+      <button class="icon" id="restart" aria-label="Restart">↻</button>
+      <button class="icon" id="mute" aria-label="Sound on or off">🔊</button>
+    </div>
+  </div>
+  <div class="score" id="score">0</div>
+  <div class="streak" id="streak">Combo x2</div>
+</header>
+<canvas id="c"></canvas>
+<div id="over" role="dialog" aria-modal="true">
+  <div class="card">
+    <div class="t1">No space left!</div>
+    <div class="lbl">Score</div>
+    <div class="big" id="oscore">0</div>
+    <div class="nb" id="newbest">New best!</div>
+    <div class="lbl">Best <span id="obest">0</span></div>
+    <button id="again">Play again</button>
+  </div>
+</div>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const cv = $('#c'), ctx = cv.getContext('2d');
+const N = 8;
+const COLORS = ['#ff4d5e','#ff9f1c','#ffd23f','#3ddc84','#22c7f0','#4f7bff','#a66cff','#ff5fc8'];
+
+// ---------- shapes ----------
+const SHAPE_DEFS = [
+  ['1',.8],['11',1.1],['1/1',1.1],['111',1.2],['1/1/1',1.2],['1111',1],['1/1/1/1',1],['11111',.6],['1/1/1/1/1',.6],
+  ['11/11',1.4],['111/111/111',.45],['111/111',.8],['11/11/11',.8],
+  ['10/11',1],['01/11',1],['11/10',1],['11/01',1],
+  ['10/10/11',.8],['01/01/11',.8],['11/10/10',.8],['11/01/01',.8],
+  ['111/100',.8],['111/001',.8],['100/111',.8],['001/111',.8],
+  ['100/100/111',.45],['001/001/111',.45],['111/100/100',.45],['111/001/001',.45],
+  ['111/010',.8],['010/111',.8],['10/11/10',.8],['01/11/01',.8],
+  ['011/110',.7],['110/011',.7],['10/11/01',.7],['01/11/10',.7],
+];
+function parse(s){
+  const rows = s.split('/'), cells = [];
+  rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '1') cells.push([r, c]); }));
+  return { cells, h: rows.length, w: rows[0].length };
+}
+const SHAPES = SHAPE_DEFS.map(([s, wt]) => ({ ...parse(s), wt }));
+const TOTAL_W = SHAPES.reduce((a, s) => a + s.wt, 0);
+function randShape(){ let x = Math.random() * TOTAL_W; for (const s of SHAPES){ x -= s.wt; if (x <= 0) return s; } return SHAPES[0]; }
+function newPiece(color){ const s = randShape(); return { cells: s.cells, w: s.w, h: s.h, color }; }
+
+// ---------- grid logic ----------
+const emptyGrid = () => Array.from({ length: N }, () => Array(N).fill(-1));
+function canPlace(g, p, r, c){
+  for (const [dr, dc] of p.cells){
+    const rr = r + dr, cc = c + dc;
+    if (rr < 0 || cc < 0 || rr >= N || cc >= N || g[rr][cc] >= 0) return false;
+  }
+  return true;
+}
+function fullLines(g){
+  const rows = [], cols = [];
+  for (let i = 0; i < N; i++){
+    if (g[i].every(v => v >= 0)) rows.push(i);
+    let f = true; for (let r = 0; r < N; r++) if (g[r][i] < 0){ f = false; break; }
+    if (f) cols.push(i);
+  }
+  return { rows, cols };
+}
+function firstFit(g, p){
+  for (let r = 0; r <= N - p.h; r++) for (let c = 0; c <= N - p.w; c++) if (canPlace(g, p, r, c)) return [r, c];
+  return null;
+}
+function simPlace(g, p, r, c){
+  const n = g.map(row => row.slice());
+  for (const [dr, dc] of p.cells) n[r + dr][c + dc] = p.color;
+  const { rows, cols } = fullLines(n);
+  rows.forEach(i => n[i].fill(-1));
+  cols.forEach(i => { for (let rr = 0; rr < N; rr++) n[rr][i] = -1; });
+  return n;
+}
+const PERMS = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+function solvable(g, ps){
+  for (const pm of PERMS){
+    let cur = g, ok = true;
+    for (const i of pm){ const f = firstFit(cur, ps[i]); if (!f){ ok = false; break; } cur = simPlace(cur, ps[i], f[0], f[1]); }
+    if (ok) return true;
+  }
+  return false;
+}
+function shuffledColors(){ const a = COLORS.map((_, i) => i); for (let i = a.length - 1; i > 0; i--){ const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function newSet(){
+  let fallback = null;
+  for (let t = 0; t < 60; t++){
+    const col = shuffledColors();
+    const ps = [newPiece(col[0]), newPiece(col[1]), newPiece(col[2])];
+    if (solvable(grid, ps)) return ps;
+    if (!fallback && ps.some(p => firstFit(grid, p))) fallback = ps;
+  }
+  if (fallback) return fallback;
+  const col = shuffledColors();
+  return [newPiece(col[0]), newPiece(col[1]), newPiece(col[2])];
+}
+
+// ---------- state ----------
+const KEY = 'gridburst-state-v1', BKEY = 'gridburst-best', MKEY = 'gridburst-muted';
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch {} },
+  del(k){ try { localStorage.removeItem(k); } catch {} },
+};
+let grid = emptyGrid(), tray = [], score = 0, dispScore = 0, streak = 0, quiet = 0, over = false;
+let best = +store.get(BKEY) || 0;
+let muted = store.get(MKEY) === '1';
+let bestAtStart = best;
+
+function save(){ store.set(KEY, JSON.stringify({ grid, tray, score, streak, quiet })); }
+function load(){
+  try {
+    const s = JSON.parse(store.get(KEY));
+    if (s && Array.isArray(s.grid) && s.grid.length === N && Array.isArray(s.tray)){
+      grid = s.grid; tray = s.tray; score = s.score | 0; dispScore = score; streak = s.streak | 0; quiet = s.quiet | 0;
+      if (tray.every(p => !p)) tray = newSet();
+      return true;
+    }
+  } catch {}
+  return false;
+}
+function reset(){
+  grid = emptyGrid(); score = 0; dispScore = 0; streak = 0; quiet = 0; over = false;
+  bestAtStart = best;
+  tray = newSet(); spawnT = performance.now();
+  clears.length = 0; popups.length = 0; parts.length = 0;
+  $('#over').classList.remove('show');
+  updateHud(true); save();
+}
+
+// ---------- layout ----------
+let L = {}, dpr = 1;
+function layout(){
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const hdr = $('header').getBoundingClientRect();
+  const padB = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+  const W = Math.min(window.innerWidth, 520);
+  const availH = window.innerHeight - hdr.bottom - padB - 6;
+  const b = Math.floor(Math.max(200, Math.min(W - 28, (availH - 22) / 1.44)));
+  const cell = b / N;
+  const ty = 12 + b + cell * 0.45, th = cell * 3.0;
+  const H = Math.ceil(ty + th + 8);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const tc = Math.min(cell * 0.56, (W / 3 - 14) / 5, th / 5.2);
+  L = { W, H, b, cell, bx: (W - b) / 2, by: 12, ty, th, tc };
+  sprites.clear();
+}
+
+// ---------- block sprites ----------
+const sprites = new Map();
+function shade(hex, p){
+  const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = n >> 8 & 255, b = n & 255;
+  const t = p < 0 ? 0 : 255, a = Math.abs(p);
+  r = Math.round((t - r) * a + r); g = Math.round((t - g) * a + g); b = Math.round((t - b) * a + b);
+  return `rgb(${r},${g},${b})`;
+}
+function rr(c, x, y, w, h, r){
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function sprite(col, size){
+  const key = col + '@' + Math.round(size * 10);
+  let s = sprites.get(key); if (s) return s;
+  const px = Math.max(4, Math.round(size * dpr));
+  s = document.createElement('canvas'); s.width = s.height = px;
+  const c = s.getContext('2d'), hex = COLORS[col];
+  const g = px * 0.045, w = px - 2 * g, r = px * 0.16, inset = px * 0.13;
+  rr(c, g, g, w, w, r); c.fillStyle = shade(hex, -0.32); c.fill();
+  c.save(); rr(c, g, g, w, w, r); c.clip();
+  c.beginPath(); c.moveTo(g, g); c.lineTo(g + w, g); c.lineTo(g, g + w); c.closePath();
+  c.fillStyle = shade(hex, 0.38); c.fill(); c.restore();
+  const fx = g + inset, fw = w - 2 * inset;
+  const grad = c.createLinearGradient(0, fx, 0, fx + fw);
+  grad.addColorStop(0, shade(hex, 0.12)); grad.addColorStop(1, shade(hex, -0.06));
+  rr(c, fx, fx, fw, fw, r * 0.55); c.fillStyle = grad; c.fill();
+  c.globalAlpha = 0.28; rr(c, fx + fw * 0.12, fx + fw * 0.08, fw * 0.5, fw * 0.16, fw * 0.08); c.fillStyle = '#fff'; c.fill();
+  sprites.set(key, s); return s;
+}
+function block(col, x, y, s, a = 1, sc = 1){
+  const img = sprite(col, s);
+  ctx.globalAlpha = a;
+  if (sc !== 1){ const d = s * sc; ctx.drawImage(img, x + (s - d) / 2, y + (s - d) / 2, d, d); }
+  else ctx.drawImage(img, x, y, s, s);
+  ctx.globalAlpha = 1;
+}
+
+// ---------- effects ----------
+const clears = [], popups = [], parts = [], placed = [];
+let shakeT = 0, shakeAmp = 0, spawnT = performance.now();
+function popup(text, x, y, size, color){ popups.push({ text, x, y, size, color, t0: performance.now() }); }
+
+// ---------- audio / haptics ----------
+let AC = null;
+function audioInit(){
+  if (!AC){ try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(f, d, type = 'sine', v = 0.12, when = 0){
+  if (!AC || muted) return;
+  const t = AC.currentTime + when, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + d + 0.02);
+}
+const sfx = {
+  pick(){ tone(660, 0.05, 'triangle', 0.06); },
+  place(){ tone(180, 0.09, 'square', 0.05); tone(360, 0.06, 'triangle', 0.05, 0.01); },
+  clear(n, st){ const base = 392 * Math.pow(2, Math.min(st - 1, 8) * 2 / 12); for (let k = 0; k < n + 2; k++) tone(base * Math.pow(2, [0,4,7,12,16,19,24][Math.min(k, 6)] / 12), 0.22, 'triangle', 0.1, k * 0.055); },
+  bad(){ tone(140, 0.12, 'sawtooth', 0.04); },
+  over(){ [523, 392, 330, 262].forEach((f, i) => tone(f, 0.3, 'triangle', 0.1, i * 0.14)); },
+};
+function buzz(p){ try { if (navigator.vibrate) navigator.vibrate(p); } catch {} }
+
+// ---------- input ----------
+let drag = null;
+function pt(e){ const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function snapFor(d){
+  const p = tray[d.i]; if (!p) return null;
+  const { cell } = L;
+  const lift = d.touch ? p.h * cell / 2 + cell * 1.25 : 0;
+  const cx = d.x, cy = d.y - lift;
+  const left = cx - p.w * cell / 2, top = cy - p.h * cell / 2;
+  const c = Math.round((left - L.bx) / cell), r = Math.round((top - L.by) / cell);
+  return { left, top, r, c, ok: canPlace(grid, p, r, c) };
+}
+cv.addEventListener('pointerdown', e => {
+  if (over) return;
+  const { x, y } = pt(e);
+  if (y < L.ty - L.cell * 0.6) return;
+  const i = Math.min(2, Math.max(0, Math.floor(x / (L.W / 3))));
+  if (!tray[i]) return;
+  e.preventDefault();
+  audioInit();
+  drag = { i, x, y, touch: e.pointerType !== 'mouse', id: e.pointerId };
+  try { cv.setPointerCapture(e.pointerId); } catch {}
+  sfx.pick(); buzz(6);
+});
+cv.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  e.preventDefault();
+  const { x, y } = pt(e); drag.x = x; drag.y = y;
+});
+function endDrag(e, cancel){
+  if (!drag || (e && e.pointerId !== drag.id)) return;
+  const s = cancel ? null : snapFor(drag);
+  const i = drag.i; drag = null;
+  if (s && s.ok) place(i, s.r, s.c);
+  else if (s && s.top + 0 < L.by + L.b) { sfx.bad(); }
+}
+cv.addEventListener('pointerup', e => endDrag(e, false));
+cv.addEventListener('pointercancel', e => endDrag(e, true));
+document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
+
+// ---------- placing ----------
+const WORDS = ['', '', 'Great!', 'Amazing!', 'Incredible!', 'Unreal!', 'Legendary!'];
+function place(i, r, c){
+  const p = tray[i], now = performance.now();
+  for (const [dr, dc] of p.cells){ grid[r + dr][c + dc] = p.color; placed.push({ r: r + dr, c: c + dc, t0: now }); }
+  tray[i] = null;
+  let gain = p.cells.length;
+  const { rows, cols } = fullLines(grid);
+  const n = rows.length + cols.length;
+  if (n){
+    streak++; quiet = 0;
+    const seen = new Set(); let sx = 0, sy = 0, k = 0;
+    const add = (rr2, cc2) => {
+      const key = rr2 * N + cc2; if (seen.has(key)) return; seen.add(key);
+      const x = L.bx + cc2 * L.cell, y = L.by + rr2 * L.cell;
+      clears.push({ x, y, col: grid[rr2][cc2], t0: now, d: (rows.includes(rr2) ? cc2 : rr2) * 22 });
+      for (let q = 0; q < 3; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 7, vy: (Math.random() - .9) * 7, s: L.cell * (0.16 + Math.random() * 0.14), col: grid[rr2][cc2], t0: now, life: 600 + Math.random() * 400 });
+      sx += x; sy += y; k++;
+    };
+    rows.forEach(rr2 => { for (let cc2 = 0; cc2 < N; cc2++) add(rr2, cc2); });
+    cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) add(rr2, cc2); });
+    rows.forEach(rr2 => grid[rr2].fill(-1));
+    cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) grid[rr2][cc2] = -1; });
+    const lineScore = 10 * n * n * streak;
+    gain += lineScore;
+    const cx = sx / k + L.cell / 2, cy = sy / k + L.cell / 2;
+    popup('+' + lineScore, cx, cy, L.cell * 0.9, '#fff');
+    if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.32, L.cell * 0.85, '#ffd23f');
+    if (grid.every(row => row.every(v => v < 0))){ gain += 300; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.5, L.cell * 0.7, '#7fffd4'); }
+    shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, 14);
+    sfx.clear(n, streak); buzz(n >= 2 ? [20, 30, 30] : 18);
+  } else {
+    quiet++; if (quiet >= 3) streak = 0;
+    sfx.place(); buzz(8);
+  }
+  score += gain;
+  if (score > best){ best = score; store.set(BKEY, String(best)); }
+  if (tray.every(x => !x)){ tray = newSet(); spawnT = now; }
+  updateHud();
+  if (!tray.some(q => q && firstFit(grid, q))){
+    over = true; store.del(KEY);
+    setTimeout(gameOver, 700);
+  } else save();
+}
+function gameOver(){
+  sfx.over(); buzz([40, 60, 80]);
+  $('#oscore').textContent = score;
+  $('#obest').textContent = best;
+  $('#newbest').classList.toggle('on', score > bestAtStart && score > 0);
+  $('#over').classList.add('show');
+}
+
+// ---------- hud ----------
+function updateHud(force){
+  $('#best').textContent = best;
+  const st = $('#streak');
+  if (streak >= 2){ st.textContent = 'Combo x' + streak; st.classList.add('on'); } else st.classList.remove('on');
+  if (force) $('#score').textContent = score;
+}
+$('#mute').textContent = muted ? '🔇' : '🔊';
+$('#mute').addEventListener('click', () => { muted = !muted; store.set(MKEY, muted ? '1' : '0'); $('#mute').textContent = muted ? '🔇' : '🔊'; audioInit(); });
+$('#restart').addEventListener('click', () => { if (over || score === 0 || confirm('Start a new game?')) reset(); });
+$('#again').addEventListener('click', () => { audioInit(); reset(); });
+
+// ---------- render ----------
+function frame(now){
+  const { W, H, b, cell, bx, by } = L;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const sk = now - shakeT < 260 ? shakeAmp * (1 - (now - shakeT) / 260) : 0;
+  if (sk) ctx.translate((Math.random() - .5) * sk, (Math.random() - .5) * sk);
+
+  // board
+  rr(ctx, bx - 7, by - 7, b + 14, b + 14, 16); ctx.fillStyle = '#0d1550'; ctx.fill();
+  ctx.fillStyle = '#1b276e';
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){ rr(ctx, bx + c * cell + 1.5, by + r * cell + 1.5, cell - 3, cell - 3, cell * 0.14); ctx.fill(); }
+
+  // preview
+  const s = drag ? snapFor(drag) : null;
+  const p = drag ? tray[drag.i] : null;
+  let hl = null;
+  if (s && s.ok){
+    const sim = grid.map(row => row.slice());
+    for (const [dr, dc] of p.cells) sim[s.r + dr][s.c + dc] = p.color;
+    const { rows, cols } = fullLines(sim);
+    if (rows.length || cols.length){
+      hl = new Set();
+      rows.forEach(r => { for (let c = 0; c < N; c++) hl.add(r * N + c); });
+      cols.forEach(c => { for (let r = 0; r < N; r++) hl.add(r * N + c); });
+    }
+  }
+
+  // placed blocks
+  for (let i = placed.length - 1; i >= 0; i--) if (now - placed[i].t0 > 220) placed.splice(i, 1);
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){
+    const v = grid[r][c]; if (v < 0) continue;
+    let sc = 1;
+    const pa = placed.find(q => q.r === r && q.c === c);
+    if (pa){ const k = (now - pa.t0) / 220; sc = 1 + Math.sin(k * Math.PI) * 0.12; }
+    const col = hl && hl.has(r * N + c) ? p.color : v;
+    block(col, bx + c * cell, by + r * cell, cell, 1, sc);
+  }
+  if (s && s.ok){
+    for (const [dr, dc] of p.cells){
+      const key = (s.r + dr) * N + s.c + dc;
+      block(p.color, bx + (s.c + dc) * cell, by + (s.r + dr) * cell, cell, hl && hl.has(key) ? 0.9 : 0.42);
+    }
+  }
+  if (hl){
+    const pulse = 0.18 + Math.sin(now / 90) * 0.1;
+    ctx.fillStyle = `rgba(255,255,255,${pulse})`;
+    hl.forEach(key => { const r = key / N | 0, c = key % N; rr(ctx, bx + c * cell + 2, by + r * cell + 2, cell - 4, cell - 4, cell * 0.14); ctx.fill(); });
+  }
+
+  // clearing blocks
+  for (let i = clears.length - 1; i >= 0; i--){
+    const q = clears[i], k = (now - q.t0 - q.d) / 380;
+    if (k > 1){ clears.splice(i, 1); continue; }
+    if (k < 0){ block(q.col, q.x, q.y, cell); continue; }
+    block(q.col, q.x, q.y, cell, 1 - k, 1 + k * 0.25);
+    ctx.globalAlpha = Math.max(0, 0.7 - k * 1.4); ctx.fillStyle = '#fff';
+    rr(ctx, q.x + 2, q.y + 2, cell - 4, cell - 4, cell * 0.14); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  // particles
+  for (let i = parts.length - 1; i >= 0; i--){
+    const q = parts[i], t = now - q.t0;
+    if (t > q.life){ parts.splice(i, 1); continue; }
+    q.x += q.vx; q.y += q.vy; q.vy += 0.35; q.vx *= 0.98;
+    ctx.globalAlpha = 1 - t / q.life; ctx.fillStyle = COLORS[q.col];
+    ctx.fillRect(q.x - q.s / 2, q.y - q.s / 2, q.s, q.s); ctx.globalAlpha = 1;
+  }
+
+  // tray
+  const slotW = W / 3, tyc = L.ty + L.th / 2;
+  const sp = Math.min(1, (now - spawnT) / 260);
+  for (let i = 0; i < 3; i++){
+    const q = tray[i]; if (!q || (drag && drag.i === i)) continue;
+    const fits = !!firstFit(grid, q);
+    const ease = 1 - Math.pow(1 - Math.min(1, Math.max(0, sp * 1.6 - i * 0.25)), 3);
+    const tc = L.tc * (0.4 + 0.6 * ease);
+    const ox = (i + 0.5) * slotW - q.w * tc / 2, oy = tyc - q.h * tc / 2;
+    for (const [dr, dc] of q.cells) block(q.color, ox + dc * tc, oy + dr * tc, tc, fits ? ease : 0.3 * ease);
+  }
+  // dragged piece
+  if (drag && p){
+    const sh = 0.25;
+    ctx.fillStyle = `rgba(0,0,0,${sh})`;
+    for (const [dr, dc] of p.cells){ rr(ctx, s.left + dc * cell + 4, s.top + dr * cell + 8, cell - 4, cell - 4, cell * 0.16); ctx.fill(); }
+    for (const [dr, dc] of p.cells) block(p.color, s.left + dc * cell, s.top + dr * cell, cell);
+  }
+
+  // popups
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let i = popups.length - 1; i >= 0; i--){
+    const q = popups[i], k = (now - q.t0) / 1000;
+    if (k > 1){ popups.splice(i, 1); continue; }
+    const sc = k < 0.15 ? 0.5 + k / 0.15 * 0.6 : (k < 0.25 ? 1.1 - (k - 0.15) : 1);
+    ctx.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+    ctx.font = `900 ${q.size * sc}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`;
+    const y = q.y - k * cell * 1.2;
+    ctx.lineWidth = q.size * 0.16; ctx.strokeStyle = 'rgba(20,10,60,.85)'; ctx.lineJoin = 'round';
+    ctx.strokeText(q.text, q.x, y); ctx.fillStyle = q.color; ctx.fillText(q.text, q.x, y);
+    ctx.globalAlpha = 1;
+  }
+
+  // score count-up
+  if (dispScore !== score){
+    dispScore += Math.max(1, Math.round((score - dispScore) * 0.18));
+    if (dispScore > score) dispScore = score;
+    $('#score').textContent = dispScore;
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- boot ----------
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', () => setTimeout(layout, 200));
+layout();
+if (!load()) tray = newSet();
+updateHud(true);
+if (!tray.some(q => q && firstFit(grid, q))) reset();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

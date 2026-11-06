@@ -8,20 +8,25 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Gridburst</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg1:#3149b8;--bg2:#121b57;--txt:#fff;--gold:#ffd23f}
+:root{--bg1:#3d63e6;--bg2:#1d34a6;--bg3:#101d6b;--txt:#fff;--gold:#ffcf2e;--font:"Fredoka","Baloo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-html{background:var(--bg2)}
-body{background:radial-gradient(130% 75% at 50% 0%,var(--bg1),var(--bg2));display:flex;flex-direction:column;align-items:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+html,body{height:100%;color:var(--txt);font-family:var(--font);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+html{background:var(--bg3)}
+body{background:radial-gradient(90% 45% at 50% 8%,rgba(120,170,255,.35),transparent 70%),linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 45%,var(--bg3) 100%);display:flex;flex-direction:column;align-items:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 header{width:100%;max-width:520px;padding:10px 16px 0}
 .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.best{font-size:16px;font-weight:800;color:var(--gold);display:flex;gap:6px;align-items:center;text-shadow:0 2px 0 rgba(0,0,0,.25)}
+.best{font-size:22px;font-weight:700;color:var(--gold);display:flex;gap:7px;align-items:center;text-shadow:0 2px 0 rgba(10,20,80,.45)}
+.best svg{width:30px;height:24px;filter:drop-shadow(0 2px 0 rgba(10,20,80,.45))}
 .btns{display:flex;gap:8px}
-button.icon{background:rgba(255,255,255,.14);border:0;color:#fff;width:44px;height:44px;border-radius:14px;font-size:20px;cursor:pointer}
-button.icon:active{transform:scale(.94)}
-.score{font-size:52px;line-height:1.05;font-weight:900;text-align:center;letter-spacing:1px;text-shadow:0 4px 0 rgba(0,0,0,.25);margin-top:-6px}
-.streak{height:20px;text-align:center;font-size:15px;font-weight:800;color:#ffb3f0;opacity:0;transition:opacity .2s}
+button.icon{background:linear-gradient(#5b7fff,#3a58d6);border:0;color:#fff;width:44px;height:44px;border-radius:14px;font-size:20px;cursor:pointer;box-shadow:0 4px 0 #22379a,inset 0 2px 0 rgba(255,255,255,.3)}
+button.icon:active{transform:translateY(3px);box-shadow:0 1px 0 #22379a,inset 0 2px 0 rgba(255,255,255,.3)}
+.score{font-size:64px;line-height:1;font-weight:700;text-align:center;letter-spacing:1px;margin-top:-4px;-webkit-text-stroke:2px rgba(16,26,100,.55);paint-order:stroke fill;text-shadow:0 5px 0 rgba(12,22,90,.55),0 0 24px rgba(140,190,255,.35);transition:transform .12s}
+.score.bump{transform:scale(1.12)}
+.streak{height:22px;text-align:center;font-size:17px;font-weight:700;color:#ffe066;opacity:0;transition:opacity .2s;text-shadow:0 2px 0 rgba(12,22,90,.6)}
 .streak.on{opacity:1}
 canvas{touch-action:none;display:block}
 #over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,40,.75);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);padding:16px}
@@ -41,7 +46,7 @@ canvas{touch-action:none;display:block}
 <body>
 <header>
   <div class="top">
-    <div class="best"><span>👑</span><span id="best">0</span></div>
+    <div class="best"><svg viewBox="0 0 30 24" aria-hidden="true"><defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff07a"/><stop offset=".55" stop-color="#ffc21a"/><stop offset="1" stop-color="#e88a00"/></linearGradient></defs><path d="M3 20 1.5 6.5l7 5.5L15 2l6.5 10 7-5.5L27 20z" fill="url(#cg)" stroke="#a85a00" stroke-width="1.6" stroke-linejoin="round"/><rect x="3" y="19" width="24" height="3.6" rx="1.6" fill="#ffb300" stroke="#a85a00" stroke-width="1.4"/><circle cx="15" cy="13.5" r="2.2" fill="#ff4d6d"/></svg><span id="best">0</span></div>
     <div class="btns">
       <button class="icon" id="restart" aria-label="Restart">↻</button>
       <button class="icon" id="mute" aria-label="Sound on or off">🔊</button>
@@ -67,7 +72,8 @@ canvas{touch-action:none;display:block}
 const $ = s => document.querySelector(s);
 const cv = $('#c'), ctx = cv.getContext('2d');
 const N = 8;
-const COLORS = ['#ff4d5e','#ff9f1c','#ffd23f','#3ddc84','#22c7f0','#4f7bff','#a66cff','#ff5fc8'];
+const COLORS = ['#f23d3d','#ff8c1a','#ffc61a','#3fcf3a','#16c3ee','#3566f2','#9a4dff','#ff4fa8'];
+const FONT = '"Fredoka","Baloo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
 
 // ---------- shapes ----------
 // [pattern, base weight, family]; rotations of one shape share a family
@@ -242,7 +248,7 @@ function reset(){
   grid = emptyGrid(); score = 0; dispScore = 0; streak = 0; quiet = 0; over = false; recent = [];
   bestAtStart = best;
   tray = newSet(); spawnT = performance.now();
-  clears.length = 0; popups.length = 0; parts.length = 0;
+  clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0;
   $('#over').classList.remove('show');
   updateHud(true); save();
 }
@@ -278,22 +284,46 @@ function rr(c, x, y, w, h, r){
   c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
+function poly(c, pts, fill){ c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); c.closePath(); c.fillStyle = fill; c.fill(); }
+// Chunky bevelled block: dark rim, four lit/shaded bevel faces, a glossy centre face and a shine.
 function sprite(col, size){
   const key = col + '@' + Math.round(size * 10);
   let s = sprites.get(key); if (s) return s;
   const px = Math.max(4, Math.round(size * dpr));
   s = document.createElement('canvas'); s.width = s.height = px;
   const c = s.getContext('2d'), hex = COLORS[col];
-  const g = px * 0.045, w = px - 2 * g, r = px * 0.16, inset = px * 0.13;
-  rr(c, g, g, w, w, r); c.fillStyle = shade(hex, -0.32); c.fill();
-  c.save(); rr(c, g, g, w, w, r); c.clip();
-  c.beginPath(); c.moveTo(g, g); c.lineTo(g + w, g); c.lineTo(g, g + w); c.closePath();
-  c.fillStyle = shade(hex, 0.38); c.fill(); c.restore();
-  const fx = g + inset, fw = w - 2 * inset;
-  const grad = c.createLinearGradient(0, fx, 0, fx + fw);
-  grad.addColorStop(0, shade(hex, 0.12)); grad.addColorStop(1, shade(hex, -0.06));
-  rr(c, fx, fx, fw, fw, r * 0.55); c.fillStyle = grad; c.fill();
-  c.globalAlpha = 0.28; rr(c, fx + fw * 0.12, fx + fw * 0.08, fw * 0.5, fw * 0.16, fw * 0.08); c.fillStyle = '#fff'; c.fill();
+  const m = px * 0.025, w = px - 2 * m, r = px * 0.13;
+  rr(c, m, m, w, w, r); c.fillStyle = shade(hex, -0.55); c.fill();
+  const a = m + px * 0.035, b = px - a, bv = px * 0.17;
+  c.save(); rr(c, a, a, b - a, b - a, r * 0.75); c.clip();
+  poly(c, [a, a, b, a, b - bv, a + bv, a + bv, a + bv], shade(hex, 0.5));
+  poly(c, [a, a, a + bv, a + bv, a + bv, b - bv, a, b], shade(hex, 0.24));
+  poly(c, [b, a, b, b, b - bv, b - bv, b - bv, a + bv], shade(hex, -0.2));
+  poly(c, [a, b, b, b, b - bv, b - bv, a + bv, b - bv], shade(hex, -0.38));
+  c.restore();
+  const f0 = a + bv, fw = b - bv - f0;
+  const grad = c.createLinearGradient(0, f0, 0, f0 + fw);
+  grad.addColorStop(0, shade(hex, 0.2)); grad.addColorStop(1, shade(hex, -0.08));
+  rr(c, f0, f0, fw, fw, px * 0.05); c.fillStyle = grad; c.fill();
+  c.globalAlpha = 0.42; c.fillStyle = '#fff';
+  rr(c, f0 + fw * 0.1, f0 + fw * 0.1, fw * 0.55, fw * 0.18, fw * 0.09); c.fill();
+  c.globalAlpha = 0.85; c.beginPath(); c.arc(a + bv * 0.75, a + bv * 0.75, px * 0.035, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1;
+  sprites.set(key, s); return s;
+}
+// Recessed empty board cell, cached like the blocks.
+function cellSprite(size){
+  const key = 'cell@' + Math.round(size * 10);
+  let s = sprites.get(key); if (s) return s;
+  const px = Math.max(4, Math.round(size * dpr));
+  s = document.createElement('canvas'); s.width = s.height = px;
+  const c = s.getContext('2d'), m = px * 0.04, w = px - 2 * m, r = px * 0.12;
+  rr(c, m, m, w, w, r); c.fillStyle = '#0e1758'; c.fill();
+  c.save(); rr(c, m, m, w, w, r); c.clip();
+  const g = c.createLinearGradient(0, m, 0, m + w);
+  g.addColorStop(0, '#0a1148'); g.addColorStop(0.3, '#142070'); g.addColorStop(1, '#18267c');
+  rr(c, m, m + px * 0.06, w, w, r); c.fillStyle = g; c.fill();
+  c.restore();
   sprites.set(key, s); return s;
 }
 function block(col, x, y, s, a = 1, sc = 1){
@@ -305,9 +335,15 @@ function block(col, x, y, s, a = 1, sc = 1){
 }
 
 // ---------- effects ----------
-const clears = [], popups = [], parts = [], placed = [];
+const clears = [], popups = [], parts = [], placed = [], beams = [], sparks = [];
 let shakeT = 0, shakeAmp = 0, spawnT = performance.now();
-function popup(text, x, y, size, color){ popups.push({ text, x, y, size, color, t0: performance.now() }); }
+const GRADS = { gold: ['#fff6a8', '#ffc21a', '#ff8a00'], pink: ['#ffd1f0', '#ff6fd0', '#c43cff'], mint: ['#e4fff4', '#5cf2c0', '#13b3a0'] };
+function popup(text, x, y, size, color, big){ popups.push({ text, x, y, size, color, big, t0: performance.now() }); }
+function star(c, x, y, r){
+  c.beginPath();
+  for (let i = 0; i < 8; i++){ const a = i * Math.PI / 4, q = i % 2 ? r * 0.28 : r; c.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
+  c.closePath(); c.fill();
+}
 
 // ---------- audio / haptics ----------
 let AC = null;
@@ -351,7 +387,7 @@ cv.addEventListener('pointerdown', e => {
   if (!tray[i]) return;
   e.preventDefault();
   audioInit();
-  drag = { i, x, y, touch: e.pointerType !== 'mouse', id: e.pointerId };
+  drag = { i, x, y, x0: x, y0: y, t0: performance.now(), touch: e.pointerType !== "mouse", id: e.pointerId };
   try { cv.setPointerCapture(e.pointerId); } catch {}
   sfx.pick(); buzz(6);
 });
@@ -386,20 +422,25 @@ function place(i, r, c){
     const add = (rr2, cc2) => {
       const key = rr2 * N + cc2; if (seen.has(key)) return; seen.add(key);
       const x = L.bx + cc2 * L.cell, y = L.by + rr2 * L.cell;
-      clears.push({ x, y, col: grid[rr2][cc2], t0: now, d: (rows.includes(rr2) ? cc2 : rr2) * 22 });
-      for (let q = 0; q < 3; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 7, vy: (Math.random() - .9) * 7, s: L.cell * (0.16 + Math.random() * 0.14), col: grid[rr2][cc2], t0: now, life: 600 + Math.random() * 400 });
+      const d = (rows.includes(rr2) ? cc2 : rr2) * 22;
+      clears.push({ x, y, col: grid[rr2][cc2], t0: now, d });
+      const np = 2 + Math.min(n, 4);
+      for (let q = 0; q < np; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 9, vy: (Math.random() - .95) * 9, s: L.cell * (0.22 + Math.random() * 0.2), rot: Math.random() * 6, vr: (Math.random() - .5) * 0.4, col: grid[rr2][cc2], t0: now + d, life: 650 + Math.random() * 450 });
+      if (Math.random() < 0.35) sparks.push({ x: x + Math.random() * L.cell, y: y + Math.random() * L.cell, t0: now + d, life: 500 + Math.random() * 300, s: L.cell * (0.25 + Math.random() * 0.25) });
       sx += x; sy += y; k++;
     };
-    rows.forEach(rr2 => { for (let cc2 = 0; cc2 < N; cc2++) add(rr2, cc2); });
-    cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) add(rr2, cc2); });
+    rows.forEach(rr2 => { beams.push({ row: rr2, t0: now }); for (let cc2 = 0; cc2 < N; cc2++) add(rr2, cc2); });
+    cols.forEach(cc2 => { beams.push({ col: cc2, t0: now }); for (let rr2 = 0; rr2 < N; rr2++) add(rr2, cc2); });
     rows.forEach(rr2 => grid[rr2].fill(-1));
     cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) grid[rr2][cc2] = -1; });
     const lineScore = 10 * n * n * streak;
     gain += lineScore;
     const cx = sx / k + L.cell / 2, cy = sy / k + L.cell / 2;
     popup('+' + lineScore, cx, cy, L.cell * 0.9, '#fff');
-    if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.32, L.cell * 0.85, '#ffd23f');
-    if (grid.every(row => row.every(v => v < 0))){ gain += 300; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.5, L.cell * 0.7, '#7fffd4'); }
+    if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.3, L.cell * (0.85 + Math.min(n, 5) * 0.08), 'gold', true);
+    if (streak >= 2) popup('Combo ' + streak, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
+    if (grid.every(row => row.every(v => v < 0))){ gain += 300; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
+    $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
     shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, 14);
     sfx.clear(n, streak); buzz(n >= 2 ? [20, 30, 30] : 18);
   } else {
@@ -443,10 +484,15 @@ function frame(now){
   const sk = now - shakeT < 260 ? shakeAmp * (1 - (now - shakeT) / 260) : 0;
   if (sk) ctx.translate((Math.random() - .5) * sk, (Math.random() - .5) * sk);
 
-  // board
-  rr(ctx, bx - 7, by - 7, b + 14, b + 14, 16); ctx.fillStyle = '#0d1550'; ctx.fill();
-  ctx.fillStyle = '#1b276e';
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){ rr(ctx, bx + c * cell + 1.5, by + r * cell + 1.5, cell - 3, cell - 3, cell * 0.14); ctx.fill(); }
+  // board: raised frame, dark well, recessed cells
+  const fr = Math.max(6, cell * 0.16);
+  ctx.fillStyle = 'rgba(6,12,60,.45)'; rr(ctx, bx - fr, by - fr + 6, b + 2 * fr, b + 2 * fr, 18); ctx.fill();
+  const fg = ctx.createLinearGradient(0, by - fr, 0, by + b + fr);
+  fg.addColorStop(0, '#5576f0'); fg.addColorStop(0.08, '#2c46c4'); fg.addColorStop(1, '#1a2c92');
+  rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 18); ctx.fillStyle = fg; ctx.fill();
+  rr(ctx, bx - 3, by - 3, b + 6, b + 6, 12); ctx.fillStyle = '#0a1250'; ctx.fill();
+  const cs = cellSprite(cell);
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) ctx.drawImage(cs, bx + c * cell, by + r * cell, cell, cell);
 
   // preview
   const s = drag ? snapFor(drag) : null;
@@ -494,14 +540,44 @@ function frame(now){
     ctx.globalAlpha = Math.max(0, 0.7 - k * 1.4); ctx.fillStyle = '#fff';
     rr(ctx, q.x + 2, q.y + 2, cell - 4, cell - 4, cell * 0.14); ctx.fill(); ctx.globalAlpha = 1;
   }
-  // particles
+  // line beams
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = beams.length - 1; i >= 0; i--){
+    const q = beams[i], k = (now - q.t0) / 460;
+    if (k > 1){ beams.splice(i, 1); continue; }
+    const th = cell * (0.9 + k * 0.9), a = (1 - k) * 0.85;
+    const g = q.row !== undefined
+      ? ctx.createLinearGradient(0, by + (q.row + 0.5) * cell - th / 2, 0, by + (q.row + 0.5) * cell + th / 2)
+      : ctx.createLinearGradient(bx + (q.col + 0.5) * cell - th / 2, 0, bx + (q.col + 0.5) * cell + th / 2, 0);
+    g.addColorStop(0, 'rgba(120,190,255,0)'); g.addColorStop(0.5, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(120,190,255,0)');
+    ctx.fillStyle = g;
+    if (q.row !== undefined) ctx.fillRect(bx - cell * 0.3, by + (q.row + 0.5) * cell - th / 2, b + cell * 0.6, th);
+    else ctx.fillRect(bx + (q.col + 0.5) * cell - th / 2, by - cell * 0.3, th, b + cell * 0.6);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // flying mini-blocks
   for (let i = parts.length - 1; i >= 0; i--){
     const q = parts[i], t = now - q.t0;
     if (t > q.life){ parts.splice(i, 1); continue; }
-    q.x += q.vx; q.y += q.vy; q.vy += 0.35; q.vx *= 0.98;
-    ctx.globalAlpha = 1 - t / q.life; ctx.fillStyle = COLORS[q.col];
-    ctx.fillRect(q.x - q.s / 2, q.y - q.s / 2, q.s, q.s); ctx.globalAlpha = 1;
+    if (t < 0) continue;
+    q.x += q.vx; q.y += q.vy; q.vy += 0.38; q.vx *= 0.98; q.rot += q.vr;
+    const sz = q.s * (1 - t / q.life * 0.4);
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot);
+    ctx.globalAlpha = Math.min(1, 1.4 - t / q.life * 1.4);
+    ctx.drawImage(sprite(q.col, cell * 0.4), -sz / 2, -sz / 2, sz, sz);
+    ctx.restore();
   }
+  ctx.globalAlpha = 1;
+  // sparkles
+  ctx.fillStyle = '#fff';
+  for (let i = sparks.length - 1; i >= 0; i--){
+    const q = sparks[i], t = now - q.t0;
+    if (t > q.life){ sparks.splice(i, 1); continue; }
+    if (t < 0) continue;
+    const k = t / q.life;
+    ctx.globalAlpha = 1 - k; star(ctx, q.x, q.y - k * cell * 0.4, q.s * Math.sin(Math.min(1, k * 2.5) * Math.PI / 2));
+  }
+  ctx.globalAlpha = 1;
 
   // tray
   const slotW = W / 3, tyc = L.ty + L.th / 2;
@@ -514,25 +590,37 @@ function frame(now){
     const ox = (i + 0.5) * slotW - q.w * tc / 2, oy = tyc - q.h * tc / 2;
     for (const [dr, dc] of q.cells) block(q.color, ox + dc * tc, oy + dr * tc, tc, fits ? ease : 0.3 * ease);
   }
-  // dragged piece
+  // dragged piece: grows from tray size to board size as it lifts toward the finger
   if (drag && p){
-    const sh = 0.25;
-    ctx.fillStyle = `rgba(0,0,0,${sh})`;
-    for (const [dr, dc] of p.cells){ rr(ctx, s.left + dc * cell + 4, s.top + dr * cell + 8, cell - 4, cell - 4, cell * 0.16); ctx.fill(); }
-    for (const [dr, dc] of p.cells) block(p.color, s.left + dc * cell, s.top + dr * cell, cell);
+    const k0 = Math.min(1, (now - drag.t0) / 140), k = 1 - Math.pow(1 - k0, 3);
+    const f = L.tc / cell + (1 - L.tc / cell) * k, sz = cell * f;
+    const tcx = (drag.i + 0.5) * slotW, tcy = tyc;
+    const cx = tcx + (s.left + p.w * cell / 2 - tcx) * k, cy = tcy + (s.top + p.h * cell / 2 - tcy) * k;
+    const ox = cx - p.w * sz / 2, oy = cy - p.h * sz / 2;
+    ctx.fillStyle = 'rgba(4,8,40,.35)';
+    for (const [dr, dc] of p.cells){ rr(ctx, ox + dc * sz + sz * 0.08, oy + dr * sz + sz * 0.2, sz * 0.92, sz * 0.92, sz * 0.14); ctx.fill(); }
+    for (const [dr, dc] of p.cells) block(p.color, ox + dc * sz, oy + dr * sz, sz);
   }
 
-  // popups
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  // popups: bouncy outlined words, big ones get a gradient fill
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   for (let i = popups.length - 1; i >= 0; i--){
-    const q = popups[i], k = (now - q.t0) / 1000;
+    const q = popups[i], dur = q.big ? 1200 : 900, k = (now - q.t0) / dur;
     if (k > 1){ popups.splice(i, 1); continue; }
-    const sc = k < 0.15 ? 0.5 + k / 0.15 * 0.6 : (k < 0.25 ? 1.1 - (k - 0.15) : 1);
-    ctx.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
-    ctx.font = `900 ${q.size * sc}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`;
-    const y = q.y - k * cell * 1.2;
-    ctx.lineWidth = q.size * 0.16; ctx.strokeStyle = 'rgba(20,10,60,.85)'; ctx.lineJoin = 'round';
-    ctx.strokeText(q.text, q.x, y); ctx.fillStyle = q.color; ctx.fillText(q.text, q.x, y);
+    const sc = k < 0.12 ? 0.3 + k / 0.12 * 0.95 : (k < 0.24 ? 1.25 - (k - 0.12) / 0.12 * 0.25 : 1);
+    ctx.globalAlpha = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1;
+    const fs = q.size * sc;
+    ctx.font = `700 ${fs}px ${FONT}`;
+    const y = q.y - k * cell * (q.big ? 0.6 : 1.2);
+    ctx.lineWidth = fs * 0.22; ctx.strokeStyle = 'rgba(16,14,70,.9)';
+    ctx.strokeText(q.text, q.x, y + fs * 0.06);
+    const gr = GRADS[q.color];
+    if (gr){
+      const g = ctx.createLinearGradient(0, y - fs / 2, 0, y + fs / 2);
+      g.addColorStop(0, gr[0]); g.addColorStop(0.5, gr[1]); g.addColorStop(1, gr[2]);
+      ctx.fillStyle = g;
+    } else ctx.fillStyle = q.color;
+    ctx.fillText(q.text, q.x, y);
     ctx.globalAlpha = 1;
   }
 

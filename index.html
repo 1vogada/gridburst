@@ -15,7 +15,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg1:#3d63e6;--bg2:#1d34a6;--bg3:#101d6b;--txt:#fff;--gold:#ffcf2e;--font:"Fredoka","Baloo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@property --bg1{syntax:'<color>';inherits:true;initial-value:#2cc4b0}
+@property --bg2{syntax:'<color>';inherits:true;initial-value:#14908e}
+@property --bg3{syntax:'<color>';inherits:true;initial-value:#0a5560}
+:root{--bg1:#2cc4b0;--bg2:#14908e;--bg3:#0a5560;transition:--bg1 1.5s,--bg2 1.5s,--bg3 1.5s;--txt:#fff;--gold:#ffcf2e;--font:"Fredoka","Baloo 2",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;color:var(--txt);font-family:var(--font);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 html{background:var(--bg3)}
@@ -61,7 +64,7 @@ canvas{touch-action:none;display:block}
 <canvas id="c"></canvas>
 <div id="over" role="dialog" aria-modal="true">
   <div class="card">
-    <div class="t1">No space left!</div>
+    <div class="t1">Game Over</div>
     <div class="lbl">Score</div>
     <div class="big" id="oscore">0</div>
     <div class="nb" id="newbest">New best!</div>
@@ -134,7 +137,7 @@ function load(){
   return false;
 }
 function reset(){
-  grid = emptyGrid(); score = 0; dispScore = 0; over = false; sc = GBScore.init(); pm = GBPieces.init();
+  grid = emptyGrid(); score = 0; dispScore = 0; over = false; sc = GBScore.init(); pm = GBPieces.init(); comboCol = null; applyTheme(0);
   bestAtStart = best;
   tray = newSet(); spawnT = performance.now();
   clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0; rings.length = 0; fly = null;
@@ -159,6 +162,29 @@ function layout(){
   const tc = Math.min(cell * 0.56, (W / 3 - 14) / 5, th / 5.2);
   L = { W, H, b, cell, bx: (W - b) / 2, by: 12, ty, th, tc };
   sprites.clear();
+}
+
+// ---------- themes ----------
+// The board and page colours move through these as the score climbs.
+const THEMES = [
+  { at: 0,     bg: ['#2cc4b0', '#14908e', '#0a5560'], frame: ['#8af2d8', '#33b5a0', '#1d7f74'], well: '#07363b', cell: ['#05282c', '#0d474c', '#115459'] },
+  { at: 3000,  bg: ['#3d63e6', '#1d34a6', '#101d6b'], frame: ['#5576f0', '#2c46c4', '#1a2c92'], well: '#0a1250', cell: ['#0a1148', '#142070', '#18267c'] },
+  { at: 12000, bg: ['#7b55f0', '#4a2bb0', '#211060'], frame: ['#a184ff', '#5b39d0', '#38209a'], well: '#16094a', cell: ['#110740', '#21116a', '#291578'] },
+  { at: 28000, bg: ['#ff6fae', '#c23d8e', '#5a1656'], frame: ['#ffa3cf', '#d4509c', '#8f2672'], well: '#360936', cell: ['#2b072d', '#48104c', '#541458'] },
+];
+const themeFor = sc => { let i = 0; THEMES.forEach((t, k) => { if (sc >= t.at) i = k; }); return i; };
+let themeIdx = 0, themePrev = 0, themeT0 = -1e9;
+function mixHex(a, b, t){
+  const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+  const ch = sh => Math.round((x >> sh & 255) + ((y >> sh & 255) - (x >> sh & 255)) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+function applyTheme(i, instant){
+  if (i === themeIdx && !instant) return;
+  themePrev = instant ? i : themeIdx; themeIdx = i; themeT0 = instant ? -1e9 : performance.now();
+  const t = THEMES[i], st = document.documentElement.style;
+  st.setProperty('--bg1', t.bg[0]); st.setProperty('--bg2', t.bg[1]); st.setProperty('--bg3', t.bg[2]);
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t.bg[1];
 }
 
 // ---------- block sprites ----------
@@ -201,18 +227,28 @@ function sprite(col, size){
   sprites.set(key, s); return s;
 }
 // Recessed empty board cell, cached like the blocks.
-function cellSprite(size){
-  const key = 'cell@' + Math.round(size * 10);
+function cellSprite(size, ti){
+  const key = 'cell' + ti + '@' + Math.round(size * 10), tc = THEMES[ti].cell;
   let s = sprites.get(key); if (s) return s;
   const px = Math.max(4, Math.round(size * dpr));
   s = document.createElement('canvas'); s.width = s.height = px;
   const c = s.getContext('2d'), m = px * 0.04, w = px - 2 * m, r = px * 0.12;
-  rr(c, m, m, w, w, r); c.fillStyle = '#0e1758'; c.fill();
+  rr(c, m, m, w, w, r); c.fillStyle = tc[1]; c.fill();
   c.save(); rr(c, m, m, w, w, r); c.clip();
   const g = c.createLinearGradient(0, m, 0, m + w);
-  g.addColorStop(0, '#0a1148'); g.addColorStop(0.3, '#142070'); g.addColorStop(1, '#18267c');
+  g.addColorStop(0, tc[0]); g.addColorStop(0.3, tc[1]); g.addColorStop(1, tc[2]);
   rr(c, m, m + px * 0.06, w, w, r); c.fillStyle = g; c.fill();
   c.restore();
+  sprites.set(key, s); return s;
+}
+function glowSprite(col, size){
+  const key = 'glow' + col + '@' + Math.round(size * 10);
+  let s = sprites.get(key); if (s) return s;
+  const px = Math.max(8, Math.round(size * 2 * dpr));
+  s = document.createElement('canvas'); s.width = s.height = px;
+  const c = s.getContext('2d'), g = c.createRadialGradient(px / 2, px / 2, px * 0.12, px / 2, px / 2, px / 2);
+  g.addColorStop(0, shade(COLORS[col], 0.55)); g.addColorStop(0.45, COLORS[col]); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.globalAlpha = 0.55; c.fillStyle = g; c.fillRect(0, 0, px, px);
   sprites.set(key, s); return s;
 }
 function block(col, x, y, s, a = 1, sc = 1){
@@ -227,7 +263,9 @@ function block(col, x, y, s, a = 1, sc = 1){
 const clears = [], popups = [], parts = [], placed = [], beams = [], sparks = [], rings = [];
 let shakeT = 0, shakeAmp = 0, spawnT = performance.now(), flashT = -1e9, flashA = 0;
 let fly = null;   // a piece flying back to the tray after an invalid drop
-const GRADS = { gold: ['#fff6a8', '#ffc21a', '#ff8a00'], pink: ['#ffd1f0', '#ff6fd0', '#c43cff'], mint: ['#e4fff4', '#5cf2c0', '#13b3a0'] };
+let comboCol = null;   // while a long chain is alive every block on the board shows this colour
+let overT = 0;   // when the board jammed, for the No Space moment
+const GRADS = { gold: ['#fff6a8', '#ffc21a', '#ff8a00'], pink: ['#ffd1f0', '#ff6fd0', '#c43cff'], mint: ['#e4fff4', '#5cf2c0', '#13b3a0'], fire: ['#fffbe0', '#ffb22e', '#ff3b2f'], ice: ['#ffffff', '#cfe6ff', '#7fa8ff'] };
 function popup(text, x, y, size, color, big){ popups.push({ text, x, y, size, color, big, t0: performance.now() }); }
 function star(c, x, y, r){
   c.beginPath();
@@ -334,6 +372,8 @@ document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, {
 
 // ---------- placing ----------
 const WORDS = ['', '', 'Great!', 'Amazing!', 'Incredible!', 'Unreal!', 'Legendary!'];
+const BANNERS = { 5: 'On Fire!', 8: 'Unstoppable!', 12: 'Combo Legend!' };   // keyed by the on-screen combo number
+const COMBO_MODE = 4;   // chain length at which the board recolours
 function place(i, r, c){
   const p = tray[i], now = performance.now();
   for (const [dr, dc] of p.cells){ grid[r + dr][c + dc] = p.color; placed.push({ r: r + dr, c: c + dc, t0: now }); }
@@ -363,7 +403,16 @@ function place(i, r, c){
     const cx = sx / k + L.cell / 2, cy = sy / k + L.cell / 2;
     if (res.lineScore) popup('+' + res.lineScore, cx, cy, L.cell * 0.9, '#fff');
     if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.3, L.cell * (0.85 + Math.min(n, 5) * 0.08), 'gold', true);
-    if (res.comboText) popup(res.comboText, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
+    if (res.comboText) popup(res.comboText, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.4), L.cell * Math.min(1.7, 0.95 + res.combo * 0.07), 'pink', true);
+    const banner = BANNERS[res.combo] || (res.combo > 12 && res.combo % 4 === 0 ? 'Combo Legend!' : '');
+    if (banner){
+      popup(banner, L.W / 2, L.by + L.b * 0.72, L.cell * 1.05, 'fire', true);
+      for (let q = 0; q < 26; q++) sparks.push({ x: L.W / 2 + (Math.random() - .5) * L.b * 0.9, y: L.by + L.b * (0.6 + Math.random() * 0.25), t0: now + Math.random() * 400, life: 600 + Math.random() * 500, s: L.cell * (0.3 + Math.random() * 0.4) });
+    }
+    if (streak >= COMBO_MODE && comboCol === null){
+      comboCol = p.color;
+      for (let r2 = 0; r2 < N; r2++) for (let c2 = 0; c2 < N; c2++) if (grid[r2][c2] >= 0) placed.push({ r: r2, c: c2, t0: now + (r2 + c2) * 18 });
+    }
     if (boardClear){ sfx.boardClear(); flashT = now; flashA = 0.6; popup(res.bonus ? 'Board clear! +' + res.bonus : 'Board clear!', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
     $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
     const huge = n >= 3 || streak >= 4;
@@ -378,13 +427,16 @@ function place(i, r, c){
     res = GBScore.place(sc, { cells: p.cells.length, lines: 0, rows: 0, cols: 0, boardClear: false });
     sfx.place(); buzz(8);
   }
+  if (sc.chain < COMBO_MODE) comboCol = null;
   score += res.gain;
   if (score > best){ best = score; store.set(BKEY, String(best)); }
+  applyTheme(themeFor(score));
   if (tray.every(x => !x)){ tray = newSet(); spawnT = now; }
   updateHud();
   if (!tray.some(q => q && firstFit(grid, q))){
-    over = true; store.del(KEY);
-    setTimeout(gameOver, 700);
+    over = true; store.del(KEY); overT = now + 350;
+    setTimeout(() => { popup('No Space!', L.W / 2, L.by + L.b * 0.5, L.cell * 1.3, 'ice', true); sfx.bad(); buzz(30); }, 350);
+    setTimeout(gameOver, 1900);
   } else save();
 }
 function gameOver(){
@@ -420,11 +472,21 @@ function frame(now){
   const fr = Math.max(6, cell * 0.16);
   ctx.fillStyle = 'rgba(6,12,60,.45)'; rr(ctx, bx - fr, by - fr + 6, b + 2 * fr, b + 2 * fr, 18); ctx.fill();
   const fg = ctx.createLinearGradient(0, by - fr, 0, by + b + fr);
-  fg.addColorStop(0, '#5576f0'); fg.addColorStop(0.08, '#2c46c4'); fg.addColorStop(1, '#1a2c92');
+  const tk = Math.min(1, (now - themeT0) / 1500), T0 = THEMES[themePrev], T1 = THEMES[themeIdx];
+  fg.addColorStop(0, mixHex(T0.frame[0], T1.frame[0], tk)); fg.addColorStop(0.08, mixHex(T0.frame[1], T1.frame[1], tk)); fg.addColorStop(1, mixHex(T0.frame[2], T1.frame[2], tk));
   rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 18); ctx.fillStyle = fg; ctx.fill();
-  rr(ctx, bx - 3, by - 3, b + 6, b + 6, 12); ctx.fillStyle = '#0a1250'; ctx.fill();
-  const cs = cellSprite(cell);
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) ctx.drawImage(cs, bx + c * cell, by + r * cell, cell, cell);
+  rr(ctx, bx - 3, by - 3, b + 6, b + 6, 12); ctx.fillStyle = mixHex(T0.well, T1.well, tk); ctx.fill();
+  const cs = cellSprite(cell, themeIdx), cs0 = tk < 1 ? cellSprite(cell, themePrev) : null;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){
+    if (cs0){ ctx.drawImage(cs0, bx + c * cell, by + r * cell, cell, cell); ctx.globalAlpha = tk; }
+    ctx.drawImage(cs, bx + c * cell, by + r * cell, cell, cell); ctx.globalAlpha = 1;
+  }
+  if (comboCol !== null){
+    const gl = glowSprite(comboCol, cell);
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.55 + Math.sin(now / 160) * 0.25;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (grid[r][c] >= 0) ctx.drawImage(gl, bx + (c - 0.5) * cell, by + (r - 0.5) * cell, cell * 2, cell * 2);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
 
   // preview
   const s = drag ? snapFor(drag) : null;
@@ -447,8 +509,8 @@ function frame(now){
     const v = grid[r][c]; if (v < 0) continue;
     let sc = 1;
     const pa = placed.find(q => q.r === r && q.c === c);
-    if (pa){ const k = (now - pa.t0) / 220; sc = 1 + Math.sin(k * Math.PI) * 0.12; }
-    const col = hl && hl.has(r * N + c) ? p.color : v;
+    if (pa){ const k = Math.max(0, (now - pa.t0) / 220); sc = 1 + Math.sin(k * Math.PI) * 0.12; }
+    const col = hl && hl.has(r * N + c) ? p.color : comboCol !== null ? comboCol : v;
     block(col, bx + c * cell, by + r * cell, cell, 1, sc);
   }
   if (s && s.ok){
@@ -522,6 +584,11 @@ function frame(now){
   const fk = (now - flashT) / 380;
   if (fk >= 0 && fk < 1){ ctx.fillStyle = `rgba(255,255,255,${flashA * (1 - fk)})`; rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 18); ctx.fill(); }
 
+  // No Space: the board dims before the Game Over card
+  if (over && now > overT){
+    ctx.fillStyle = `rgba(5,8,30,${Math.min(0.5, (now - overT) / 900 * 0.5)})`;
+    rr(ctx, bx - 3, by - 3, b + 6, b + 6, 12); ctx.fill();
+  }
   // tray
   const slotW = W / 3, tyc = L.ty + L.th / 2;
   const sp = Math.min(1, (now - spawnT) / 260);
@@ -591,6 +658,7 @@ window.addEventListener('resize', layout);
 window.addEventListener('orientationchange', () => setTimeout(layout, 200));
 layout();
 if (!load()) tray = newSet();
+applyTheme(themeFor(score), true);
 updateHud(true);
 if (!tray.some(q => q && firstFit(grid, q))) reset();
 requestAnimationFrame(frame);

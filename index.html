@@ -359,11 +359,11 @@ function place(i, r, c){
     cols.forEach(cc2 => { for (let rr2 = 0; rr2 < N; rr2++) grid[rr2][cc2] = -1; });
     const boardClear = grid.every(row => row.every(v => v < 0));
     res = GBScore.place(sc, { cells: p.cells.length, lines: n, rows: rows.length, cols: cols.length, boardClear });
-    const streak = res.combo;
+    const streak = res.chain;   // true chain length, drives effects
     const cx = sx / k + L.cell / 2, cy = sy / k + L.cell / 2;
     if (res.lineScore) popup('+' + res.lineScore, cx, cy, L.cell * 0.9, '#fff');
     if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.3, L.cell * (0.85 + Math.min(n, 5) * 0.08), 'gold', true);
-    if (streak >= 2) popup('Combo ' + streak, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
+    if (res.comboText) popup(res.comboText, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
     if (boardClear){ sfx.boardClear(); flashT = now; flashA = 0.6; popup(res.bonus ? 'Board clear! +' + res.bonus : 'Board clear!', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
     $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
     const huge = n >= 3 || streak >= 4;

@@ -1,9 +1,10 @@
 // Gridburst scoring. Pure logic, no DOM.
-// Follows Block Blast (Hungry Studio), Classic mode, as read from the Android 10.8.1 game logic
-// by blockblast.co/block-blast-app-high-score (reviewed Oct 2026):
+// Point values read off a recorded Block Blast Classic run (score popups and counter, frame by frame):
 //   placement   1 point per cell placed
 //   line clear  L = rows + cols completed by the placement, K = chain count after this placement
-//               L = 1 -> 10*K ;  L >= 2 -> 10*K*L*(L-1)   (so 10, 20, 60, 120, 200, 300 at K = 1)
+//               points = round(rate(K) * K * L), rate 34 for K <= 6, 50.6 for K 7..12, 57.75 from K 13
+//               (seen: +34 +68 +102 at K 1-3, +272 K4/2 lines, +340 K5/2, +612 K6/3, +354 K7, +405 K8,
+//                +911 K9/2, +506 K10, +982 K17, +1732 K15/2, +2080 K18/2; the 7..12 / 13+ split is a guess)
 //   chain       the first clearing placement sets K = 1; every later clearing placement adds 1
 //               (one per placement, however many lines). Up to 2 non-clearing placements in a row
 //               keep the chain; the 3rd resets it to 0.
@@ -18,15 +19,16 @@
 //     bonus: all-clear bonus (shown separately), 0 if none;
 //     combo: the game's on-screen combo number (K - 1) when this placement cleared and K >= 2, else 0;
 //            note K = 2 gives combo 1, which the game shows as a bare "Combo" (see comboText)
-//     comboText (added): the game's combo popup for this placement: '' , 'Combo' or 'Combo N'
-//     chain (added): the internal chain count K after this placement (0 = no chain)
+//     comboText: the game's combo popup for this placement: '' , 'Combo' or 'Combo N'
+//     chain: the internal chain count K after this placement (0 = no chain)
 //   GBScore.comboLabel(st) -> text for the combo badge under the score while a chain of K >= 2 is alive, or ''
 (() => {
 'use strict';
 const KEEP = 2;          // non-clearing placements a chain survives
 const CLEAR_BONUS = 300; // all-clear bonus
 const CLEAR_ROUND = 6;   // first tray deal at which the all-clear bonus counts
-const linePoints = (L, K) => L <= 0 ? 0 : L === 1 ? 10 * K : 10 * K * L * (L - 1);
+const rate = K => K <= 6 ? 34 : K <= 12 ? 50.6 : 57.75;
+const linePoints = (L, K) => L <= 0 ? 0 : Math.round(rate(K) * K * L);
 const text = K => K >= 3 ? 'Combo ' + (K - 1) : K === 2 ? 'Combo' : '';
 
 function norm(st){

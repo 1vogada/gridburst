@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#16226a">
+<meta name="theme-color" content="#1d34a6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -248,7 +251,7 @@ function reset(){
   grid = emptyGrid(); score = 0; dispScore = 0; streak = 0; quiet = 0; over = false; recent = [];
   bestAtStart = best;
   tray = newSet(); spawnT = performance.now();
-  clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0;
+  clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0; rings.length = 0; fly = null;
   $('#over').classList.remove('show');
   updateHud(true); save();
 }
@@ -335,8 +338,9 @@ function block(col, x, y, s, a = 1, sc = 1){
 }
 
 // ---------- effects ----------
-const clears = [], popups = [], parts = [], placed = [], beams = [], sparks = [];
-let shakeT = 0, shakeAmp = 0, spawnT = performance.now();
+const clears = [], popups = [], parts = [], placed = [], beams = [], sparks = [], rings = [];
+let shakeT = 0, shakeAmp = 0, spawnT = performance.now(), flashT = -1e9, flashA = 0;
+let fly = null;   // a piece flying back to the tray after an invalid drop
 const GRADS = { gold: ['#fff6a8', '#ffc21a', '#ff8a00'], pink: ['#ffd1f0', '#ff6fd0', '#c43cff'], mint: ['#e4fff4', '#5cf2c0', '#13b3a0'] };
 function popup(text, x, y, size, color, big){ popups.push({ text, x, y, size, color, big, t0: performance.now() }); }
 function star(c, x, y, r){
@@ -346,24 +350,55 @@ function star(c, x, y, r){
 }
 
 // ---------- audio / haptics ----------
-let AC = null;
+let AC = null, OUT = null, NOISE = null;
 function audioInit(){
-  if (!AC){ try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+  if (!AC){
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+      OUT = AC.createGain(); OUT.gain.value = 0.9; OUT.connect(comp).connect(AC.destination);
+      NOISE = AC.createBuffer(1, AC.sampleRate * 0.5, AC.sampleRate);
+      const d = NOISE.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    } catch { AC = null; }
+  }
   if (AC && AC.state === 'suspended') AC.resume();
 }
-function tone(f, d, type = 'sine', v = 0.12, when = 0){
+// One enveloped oscillator; f2 slides the pitch over the note.
+function tone(f, d, type = 'sine', v = 0.12, when = 0, f2 = 0){
   if (!AC || muted) return;
   const t = AC.currentTime + when, o = AC.createOscillator(), g = AC.createGain();
   o.type = type; o.frequency.setValueAtTime(f, t);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-  o.connect(g).connect(AC.destination); o.start(t); o.stop(t + d + 0.02);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g).connect(OUT); o.start(t); o.stop(t + d + 0.02);
 }
+// Filtered noise burst for clicks, thuds and whooshes; f2 sweeps the filter.
+function noise(f, d, v = 0.1, when = 0, f2 = 0, q = 1.2){
+  if (!AC || muted) return;
+  const t = AC.currentTime + when, s = AC.createBufferSource(), bp = AC.createBiquadFilter(), g = AC.createGain();
+  s.buffer = NOISE; bp.type = 'bandpass'; bp.Q.value = q; bp.frequency.setValueAtTime(f, t);
+  if (f2) bp.frequency.exponentialRampToValueAtTime(f2, t + d);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  s.connect(bp).connect(g).connect(OUT); s.start(t); s.stop(t + d + 0.02);
+}
+const bell = (f, v, when) => { tone(f, 0.35, 'sine', v, when); tone(f * 2.01, 0.18, 'sine', v * 0.35, when); tone(f * 3.98, 0.08, 'triangle', v * 0.15, when); };
 const sfx = {
-  pick(){ tone(660, 0.05, 'triangle', 0.06); },
-  place(){ tone(180, 0.09, 'square', 0.05); tone(360, 0.06, 'triangle', 0.05, 0.01); },
-  clear(n, st){ const base = 392 * Math.pow(2, Math.min(st - 1, 8) * 2 / 12); for (let k = 0; k < n + 2; k++) tone(base * Math.pow(2, [0,4,7,12,16,19,24][Math.min(k, 6)] / 12), 0.22, 'triangle', 0.1, k * 0.055); },
-  bad(){ tone(140, 0.12, 'sawtooth', 0.04); },
-  over(){ [523, 392, 330, 262].forEach((f, i) => tone(f, 0.3, 'triangle', 0.1, i * 0.14)); },
+  pick(){ tone(520, 0.07, 'sine', 0.08, 0, 820); noise(3000, 0.03, 0.04); },
+  place(){ tone(150, 0.12, 'sine', 0.16, 0, 70); noise(900, 0.06, 0.12, 0, 300, 0.8); tone(420, 0.05, 'triangle', 0.04, 0.005); },
+  clear(n, st){
+    const base = 440 * Math.pow(2, Math.min(st - 1, 9) * 2 / 12);
+    noise(400, 0.35, 0.09, 0, 6000, 0.7);
+    const steps = [0, 4, 7, 12, 16, 19, 24, 28];
+    for (let k = 0; k < Math.min(n + 3, steps.length); k++) bell(base * Math.pow(2, steps[k] / 12), 0.09, k * 0.05);
+    if (n >= 3 || st >= 4){
+      tone(70, 0.5, 'sine', 0.25, 0, 40);
+      [0, 4, 7, 11].forEach(s => tone(base * Math.pow(2, s / 12) / 2, 0.6, 'triangle', 0.05, 0.12));
+    }
+  },
+  boardClear(){ [0, 4, 7, 12, 16, 19, 24].forEach((s, k) => bell(523 * Math.pow(2, s / 12), 0.1, 0.25 + k * 0.07)); },
+  bad(){ tone(220, 0.16, 'triangle', 0.08, 0, 120); noise(500, 0.08, 0.05); },
+  fly(){ tone(700, 0.12, 'sine', 0.05, 0, 380); },
+  over(){ [523, 440, 349, 262].forEach((f, i) => tone(f, 0.35, 'triangle', 0.1, i * 0.16, f * 0.94)); tone(110, 0.8, 'sine', 0.12, 0.6, 55); },
 };
 function buzz(p){ try { if (navigator.vibrate) navigator.vibrate(p); } catch {} }
 
@@ -387,6 +422,7 @@ cv.addEventListener('pointerdown', e => {
   if (!tray[i]) return;
   e.preventDefault();
   audioInit();
+  if (fly && fly.i === i) fly = null;
   drag = { i, x, y, x0: x, y0: y, t0: performance.now(), touch: e.pointerType !== "mouse", id: e.pointerId };
   try { cv.setPointerCapture(e.pointerId); } catch {}
   sfx.pick(); buzz(6);
@@ -399,9 +435,12 @@ cv.addEventListener('pointermove', e => {
 function endDrag(e, cancel){
   if (!drag || (e && e.pointerId !== drag.id)) return;
   const s = cancel ? null : snapFor(drag);
-  const i = drag.i; drag = null;
+  const i = drag.i, d = drag; drag = null;
   if (s && s.ok) place(i, s.r, s.c);
-  else if (s && s.top + 0 < L.by + L.b) { sfx.bad(); }
+  else {
+    if (d.cx !== undefined) fly = { i, cx: d.cx, cy: d.cy, sz: d.sz, t0: performance.now() };
+    if (s && s.top < L.by + L.b){ sfx.bad(); buzz(12); } else sfx.fly();
+  }
 }
 cv.addEventListener('pointerup', e => endDrag(e, false));
 cv.addEventListener('pointercancel', e => endDrag(e, true));
@@ -439,10 +478,16 @@ function place(i, r, c){
     popup('+' + lineScore, cx, cy, L.cell * 0.9, '#fff');
     if (n >= 2) popup(WORDS[Math.min(n, 6)], L.W / 2, L.by + L.b * 0.3, L.cell * (0.85 + Math.min(n, 5) * 0.08), 'gold', true);
     if (streak >= 2) popup('Combo ' + streak, L.W / 2, L.by + L.b * (n >= 2 ? 0.52 : 0.36), L.cell * Math.min(1.25, 0.8 + streak * 0.06), 'pink', true);
-    if (grid.every(row => row.every(v => v < 0))){ gain += 300; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
+    if (grid.every(row => row.every(v => v < 0))){ gain += 300; sfx.boardClear(); flashT = now; flashA = 0.6; popup('Board clear! +300', L.W / 2, L.by + L.b * 0.6, L.cell * 0.75, 'mint', true); }
     $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
-    shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, 14);
-    sfx.clear(n, streak); buzz(n >= 2 ? [20, 30, 30] : 18);
+    const huge = n >= 3 || streak >= 4;
+    if (huge){
+      flashT = now; flashA = Math.min(0.55, 0.18 + n * 0.08 + streak * 0.02);
+      rings.push({ x: cx, y: cy, t0: now }, { x: cx, y: cy, t0: now + 120 });
+      for (let q = 0; q < 14 + n * 4; q++) sparks.push({ x: cx + (Math.random() - .5) * L.b * 0.8, y: cy + (Math.random() - .5) * L.b * 0.5, t0: now + Math.random() * 300, life: 500 + Math.random() * 400, s: L.cell * (0.3 + Math.random() * 0.35) });
+    }
+    shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, huge ? 20 : 14);
+    sfx.clear(n, streak); buzz(huge ? [30, 30, 40, 30, 60] : n >= 2 ? [20, 30, 30] : 18);
   } else {
     quiet++; if (quiet >= 3) streak = 0;
     sfx.place(); buzz(8);
@@ -578,17 +623,37 @@ function frame(now){
     ctx.globalAlpha = 1 - k; star(ctx, q.x, q.y - k * cell * 0.4, q.s * Math.sin(Math.min(1, k * 2.5) * Math.PI / 2));
   }
   ctx.globalAlpha = 1;
+  // shockwave rings and screen flash for big combos
+  for (let i = rings.length - 1; i >= 0; i--){
+    const q = rings[i], k = (now - q.t0) / 600;
+    if (k > 1){ rings.splice(i, 1); continue; }
+    if (k < 0) continue;
+    ctx.globalAlpha = (1 - k) * 0.8; ctx.strokeStyle = '#fff'; ctx.lineWidth = cell * 0.35 * (1 - k) + 1;
+    ctx.beginPath(); ctx.arc(q.x, q.y, cell * 0.5 + k * b * 0.75, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const fk = (now - flashT) / 380;
+  if (fk >= 0 && fk < 1){ ctx.fillStyle = `rgba(255,255,255,${flashA * (1 - fk)})`; rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 18); ctx.fill(); }
 
   // tray
   const slotW = W / 3, tyc = L.ty + L.th / 2;
   const sp = Math.min(1, (now - spawnT) / 260);
   for (let i = 0; i < 3; i++){
-    const q = tray[i]; if (!q || (drag && drag.i === i)) continue;
+    const q = tray[i]; if (!q || (drag && drag.i === i) || (fly && fly.i === i)) continue;
     const fits = !!firstFit(grid, q);
     const ease = 1 - Math.pow(1 - Math.min(1, Math.max(0, sp * 1.6 - i * 0.25)), 3);
     const tc = L.tc * (0.4 + 0.6 * ease);
     const ox = (i + 0.5) * slotW - q.w * tc / 2, oy = tyc - q.h * tc / 2;
     for (const [dr, dc] of q.cells) block(q.color, ox + dc * tc, oy + dr * tc, tc, fits ? ease : 0.3 * ease);
+  }
+  if (fly){
+    const q = tray[fly.i], k0 = (now - fly.t0) / 230;
+    if (!q || k0 >= 1) fly = null;
+    else {
+      const k = 1 - Math.pow(1 - k0, 3), sz = fly.sz + (L.tc - fly.sz) * k;
+      const cx = fly.cx + ((fly.i + 0.5) * slotW - fly.cx) * k, cy = fly.cy + (tyc - fly.cy) * k;
+      for (const [dr, dc] of q.cells) block(q.color, cx - q.w * sz / 2 + dc * sz, cy - q.h * sz / 2 + dr * sz, sz);
+    }
   }
   // dragged piece: grows from tray size to board size as it lifts toward the finger
   if (drag && p){
@@ -597,6 +662,7 @@ function frame(now){
     const tcx = (drag.i + 0.5) * slotW, tcy = tyc;
     const cx = tcx + (s.left + p.w * cell / 2 - tcx) * k, cy = tcy + (s.top + p.h * cell / 2 - tcy) * k;
     const ox = cx - p.w * sz / 2, oy = cy - p.h * sz / 2;
+    drag.cx = cx; drag.cy = cy; drag.sz = sz;
     ctx.fillStyle = 'rgba(4,8,40,.35)';
     for (const [dr, dc] of p.cells){ rr(ctx, ox + dc * sz + sz * 0.08, oy + dr * sz + sz * 0.2, sz * 0.92, sz * 0.92, sz * 0.14); ctx.fill(); }
     for (const [dr, dc] of p.cells) block(p.color, ox + dc * sz, oy + dr * sz, sz);
@@ -641,6 +707,7 @@ if (!load()) tray = newSet();
 updateHud(true);
 if (!tray.some(q => q && firstFit(grid, q))) reset();
 requestAnimationFrame(frame);
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
 </body>

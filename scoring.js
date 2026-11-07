@@ -35,13 +35,34 @@
 //   GBScore.comboLabel(st) -> text for the combo badge under the score while a chain of K >= 2 is alive, or ''
 (() => {
 'use strict';
-const KEEP = 2;          // non-clearing placements a chain survives
-const CLEAR_BONUS = 300; // all-clear bonus
-const CLEAR_ROUND = 6;   // first tray deal at which the all-clear bonus counts
-const rate = K => K <= 6 ? 34 : K <= 12 ? 50.6 : 57.75;
+// Every number below can be changed in Settings > Scoring; the defaults are the values read off the video.
+const S = window.GBSettings;
+if (S){
+  const d = (k, spec) => S.define('scoring.' + k, spec);
+  d('mult', { type: 'slider', group: 'General', label: 'Score multiplier', def: 1, min: 0.25, max: 5, step: 0.05, unit: 'x', help: 'Multiplies every point you earn. 1x matches the original.' });
+  d('cellPoints', { type: 'slider', group: 'General', label: 'Points per placed block', def: 1, min: 0, max: 10, step: 1, help: 'Each block of a placed piece is worth this much.' });
+  d('rate1', { type: 'slider', group: 'Line clears', label: 'Line value, combo 0-5', def: 34, min: 5, max: 150, step: 0.25, help: 'Points per line x chain length while the chain is 6 or shorter.' });
+  d('rate2', { type: 'slider', group: 'Line clears', label: 'Line value, combo 6-11', def: 50.6, min: 5, max: 150, step: 0.25 });
+  d('rate3', { type: 'slider', group: 'Line clears', label: 'Line value, combo 12+', def: 57.75, min: 5, max: 150, step: 0.25 });
+  d('keep', { type: 'slider', group: 'Combo', label: 'Moves a combo survives', def: 2, min: 0, max: 6, step: 1, help: 'Placements without a clear before the combo resets. The original allows 2.' });
+  d('comeback', { type: 'toggle', group: 'Bonuses', label: 'Legendary Comeback', def: true, help: 'Clearing on a nearly full board pays extra.' });
+  d('comebackFill', { type: 'slider', group: 'Bonuses', label: 'Comeback: board fullness', def: 46, min: 30, max: 60, step: 1, unit: 'cells', help: 'Occupied cells (of 64) needed for a comeback.' });
+  d('comebackMult', { type: 'slider', group: 'Bonuses', label: 'Comeback: multiplier', def: 1.715, min: 1, max: 5, step: 0.005, unit: 'x' });
+  d('master', { type: 'toggle', group: 'Bonuses', label: 'Combo Master banner', def: true, help: 'Shown on the 16th clear of a chain.' });
+  d('allClear', { type: 'toggle', group: 'Bonuses', label: 'All-clear bonus', def: true });
+  d('allClearPoints', { type: 'slider', group: 'Bonuses', label: 'All-clear points', def: 300, min: 0, max: 3000, step: 50 });
+  d('allClearRound', { type: 'slider', group: 'Bonuses', label: 'All-clear counts from tray', def: 6, min: 1, max: 20, step: 1, help: 'The original only pays it from the 6th tray on.' });
+  d('stages', { type: 'toggle', group: 'Stages', label: 'Stage changes and bonus', def: true, help: 'Color stage changes with the X1, X2 cutscene and a bonus.' });
+  d('stageStart', { type: 'slider', group: 'Stages', label: 'First stage at', def: 28000, min: 1000, max: 100000, step: 500, unit: 'pts' });
+  d('stageEvery', { type: 'slider', group: 'Stages', label: 'Next stage every', def: 3500, min: 500, max: 50000, step: 500, unit: 'pts' });
+  d('stageBonus', { type: 'slider', group: 'Stages', label: 'Stage bonus', def: 4.9, min: 0, max: 30, step: 0.1, unit: '%', help: 'Bonus as a share of your score.' });
+}
+const get = (k, def) => { const v = S && S.get('scoring.' + k); return v === undefined ? def : v; };
+const KEEP = () => get('keep', 2);   // non-clearing placements a chain survives
+const rate = K => K <= 6 ? get('rate1', 34) : K <= 12 ? get('rate2', 50.6) : get('rate3', 57.75);
 const linePoints = (L, K) => L <= 0 ? 0 : Math.round(rate(K) * K * L);
-const COMEBACK_FILL = 46, COMEBACK_MULT = 1.715, MASTER_CHAIN = 16;
-const stageOf = sc => sc < 28000 ? 0 : 1 + Math.floor((sc - 28000) / 3500);
+const MASTER_CHAIN = 16;
+const stageOf = sc => { const a = get('stageStart', 28000), e = get('stageEvery', 3500); return sc < a ? 0 : 1 + Math.floor((sc - a) / e); };
 const text = K => K >= 3 ? 'Combo ' + (K - 1) : K === 2 ? 'Combo' : '';
 
 function norm(st){
@@ -62,17 +83,20 @@ function place(st, ev){
   if (lines){
     st.chain++; st.quiet = 0;
     lineScore = linePoints(lines, st.chain);
-    if ((ev.filled | 0) >= COMEBACK_FILL){ comeback = true; lineScore = Math.round(lineScore * COMEBACK_MULT); banner = 'Legendary Comeback'; }
-    if (st.chain === MASTER_CHAIN) banner = 'Combo Master';
-    if (ev.boardClear && round >= CLEAR_ROUND) bonus = CLEAR_BONUS;
-  } else if (++st.quiet > KEEP){
+    if (get('comeback', true) && (ev.filled | 0) >= get('comebackFill', 46)){ comeback = true; lineScore = Math.round(lineScore * get('comebackMult', 1.715)); banner = 'Legendary Comeback'; }
+    if (get('master', true) && st.chain === MASTER_CHAIN) banner = 'Combo Master';
+    if (get('allClear', true) && ev.boardClear && round >= get('allClearRound', 6)) bonus = get('allClearPoints', 300);
+  } else if (++st.quiet > KEEP()){
     st.chain = 0; st.quiet = 0;
   }
-  let gain = (ev.cells | 0) + lineScore + bonus, stageUp = 0, stageBonus = 0;
+  const m = get('mult', 1);
+  if (m !== 1){ lineScore = Math.round(lineScore * m); bonus = Math.round(bonus * m); }
+  let gain = Math.round((ev.cells | 0) * get('cellPoints', 1) * m) + lineScore + bonus, stageUp = 0, stageBonus = 0;
   const before = ev.score | 0;
   if (st.stage < 0) st.stage = stageOf(before);
-  const n = stageOf(before + gain);
-  if (n > st.stage){ st.stage = n; stageUp = n; stageBonus = Math.round((before + gain) * 0.049); gain += stageBonus; }
+  const n = get('stages', true) ? stageOf(before + gain) : st.stage;
+  if (n > st.stage){ st.stage = n; stageUp = n; stageBonus = Math.round((before + gain) * get('stageBonus', 4.9) / 100); gain += stageBonus; }
+  else if (n < st.stage) st.stage = n;   // stage settings were changed
   return {
     gain, lineScore, bonus, comeback, banner, stageUp, stageBonus,
     combo: lines && st.chain >= 2 ? st.chain - 1 : 0,

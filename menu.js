@@ -105,7 +105,7 @@ function skinId(){
 function drawBlock(c, x, y, s, hex, t, seed, skin, dpr){
   const sk = window.GBSkins;
   if (sk && typeof sk.draw === 'function' && !skinFail){
-    try { sk.draw(c, x, y, s, { hex, skin, t, seed }); return; }
+    try { if (typeof sk.skinFor === 'function') skin = sk.skinFor({ stage: 1, pieceSeed: seed, cellSeed: seed, mode: 'piece' }); sk.draw(c, x, y, s, { hex, skin, t, seed }); return; }
     catch (e) { skinFail = true; console.warn('GBMenu: GBSkins.draw failed, using built-in blocks', e); }
   }
   const px = Math.max(4, Math.ceil(s * dpr / 4) * 4);

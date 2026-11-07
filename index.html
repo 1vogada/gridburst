@@ -83,6 +83,7 @@ body.bigtext .best{font-size:19px}
 <script src="settings.js"></script>
 <script src="pieces.js"></script>
 <script src="scoring.js"></script>
+<script src="skins.js"></script>
 <script src="menu.js"></script>
 <script>
 (() => {
@@ -628,7 +629,7 @@ function place(i, r, c){
       const sd = seeds[rr2][cc2], cs = cellSeed(sd, rr2, cc2);
       clears.push({ x, y, col, t0: now, d, sd, cs });
       const np = P(2 + Math.min(n, 4));
-      for (let q = 0; q < np; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 9, vy: (Math.random() - .95) * 9, s: L.cell * (0.22 + Math.random() * 0.2), rot: Math.random() * 6, vr: (Math.random() - .5) * 0.4, col, t0: now + d, life: 650 + Math.random() * 450 });
+      for (let q = 0; q < np; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 9, vy: (Math.random() - .95) * 9, s: L.cell * (0.22 + Math.random() * 0.2), rot: Math.random() * 6, vr: (Math.random() - .5) * 0.4, col, sd, cs, t0: now + d, life: 650 + Math.random() * 450 });
       if (opt('effects.sparkles', true) && Math.random() < 0.35 * opt('effects.particles', 1)) sparks.push({ x: x + Math.random() * L.cell, y: y + Math.random() * L.cell, t0: now + d, life: 500 + Math.random() * 300, s: L.cell * (0.25 + Math.random() * 0.25) });
       // gold gems sit on the cleared line, then fly up to the score
       if (opt('effects.gems', true) && k % 2 === 0 && gems.length < 24) gems.push({ x: x + L.cell / 2, y: y + L.cell / 2, t0: now + d + 120, wait: 260 + Math.random() * 120 });
@@ -1039,7 +1040,7 @@ function frame(real){
     const sz = q.s * (1 - t / q.life * 0.4);
     ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot);
     ctx.globalAlpha = Math.min(1, 1.4 - t / q.life * 1.4);
-    block(q.col, -sz / 2, -sz / 2, sz, 1, 1, i * 7919, i);
+    block(q.col, -sz / 2, -sz / 2, sz, 1, 1, q.cs | 0, q.sd | 0);
     ctx.restore();
   }
   ctx.globalAlpha = 1;

@@ -410,7 +410,7 @@ function toast(msg){
 const SHAPES = [[[0, 0]], [[0, 0]], [[0, 0], [0, 1]], [[0, 0], [1, 0], [1, 1]], [[0, 0], [0, 1], [1, 0], [1, 1]], [[0, 0], [0, 1], [0, 2]]];
 const bg = { raf: 0, last: 0, w: 0, h: 0, dpr: 1, items: [] };
 function sizeBg(){
-  const dpr = Math.min(2, window.devicePixelRatio || 1), w = root.clientWidth || innerWidth, h = root.clientHeight || innerHeight;
+  const dpr = document.body.classList.contains('gb-low') ? 1 : Math.min(2, window.devicePixelRatio || 1), w = root.clientWidth || innerWidth, h = root.clientHeight || innerHeight;
   if (w === bg.w && h === bg.h && dpr === bg.dpr && bg.items.length) return;
   bg.w = w; bg.h = h; bg.dpr = dpr;
   bgCv.width = Math.round(w * dpr); bgCv.height = Math.round(h * dpr);
@@ -430,9 +430,15 @@ function drawBg(t, dt){
     const ext = Math.max(b.pw, b.ph) * b.s;
     if (b.y - ext > h){ b.y = -ext; b.x = Math.random() * w; }
     const x = b.x + Math.sin(t / 1400 + b.ph0) * 10, rot = b.r + Math.sin(t / 1900 + b.ph0) * 0.18;
+    // each falling piece is painted once into its own small canvas, then only moved and rotated
+    if (!b.img || b.imgSkin !== skin){
+      const iw = Math.ceil(b.pw * b.s * dpr), ih = Math.ceil(b.ph * b.s * dpr), im = document.createElement('canvas');
+      im.width = iw; im.height = ih; const g = im.getContext('2d'); g.scale(dpr, dpr);
+      for (const [r, k] of b.cells) drawBlock(g, k * b.s, r * b.s, b.s, b.hex, 0, b.seed + r * 7 + k, skin, dpr);
+      b.img = im; b.imgSkin = skin;
+    }
     c.save(); c.translate(x, b.y); c.rotate(rot); c.globalAlpha = b.a;
-    const ox = -b.pw * b.s / 2, oy = -b.ph * b.s / 2;
-    for (const [r, k] of b.cells) drawBlock(c, ox + k * b.s, oy + r * b.s, b.s, b.hex, t, b.seed + r * 7 + k, skin, dpr);
+    c.drawImage(b.img, -b.pw * b.s / 2, -b.ph * b.s / 2, b.pw * b.s, b.ph * b.s);
     c.restore();
   }
 }
@@ -442,9 +448,12 @@ function startBg(){
   drawBg(performance.now(), 0);
   if (!animate) return;
   bg.last = performance.now();
+  // 30 fps is plenty for slowly falling blocks and halves the work on weak phones
   const loop = t => {
-    const dt = Math.min(0.05, Math.max(0, (t - bg.last) / 1000)); bg.last = t;
-    drawBg(t, dt); bg.raf = requestAnimationFrame(loop);
+    bg.raf = requestAnimationFrame(loop);
+    if (t - bg.last < 30) return;
+    const dt = Math.min(0.1, Math.max(0, (t - bg.last) / 1000)); bg.last = t;
+    drawBg(t, dt);
   };
   bg.raf = requestAnimationFrame(loop);
 }

@@ -80,11 +80,11 @@ body.bigtext .best{font-size:19px}
     <button id="omenu">Menu</button>
   </div>
 </div>
-<script src="settings.js?v=8"></script>
-<script src="pieces.js?v=8"></script>
-<script src="scoring.js?v=8"></script>
-<script src="skins.js?v=8"></script>
-<script src="menu.js?v=8"></script>
+<script src="settings.js?v=9"></script>
+<script src="pieces.js?v=9"></script>
+<script src="scoring.js?v=9"></script>
+<script src="skins.js?v=9"></script>
+<script src="menu.js?v=9"></script>
 <script>
 (() => {
 'use strict';
@@ -110,12 +110,12 @@ def('gameplay.theme', { type: 'select', group: 'Look', label: 'Theme', def: 'aut
 def('gameplay.ghost', { type: 'toggle', group: 'Board', label: 'Ghost preview', def: true, help: 'Shows where the piece will land.' });
 def('gameplay.lineHint', { type: 'toggle', group: 'Board', label: 'Highlight lines about to clear', def: true });
 def('gameplay.gridLines', { type: 'toggle', group: 'Board', label: 'Grid lines', def: true });
-def('gameplay.boardGlow', { type: 'toggle', group: 'Board', label: 'Glow during long combos', def: true });
+def('gameplay.boardGlow', { type: 'toggle', group: 'Board', label: 'Glow during long combos', def: false });
 def('gameplay.comboFrom', { type: 'slider', group: 'Board', label: 'Glow starts at combo', def: 3, min: 1, max: 15, step: 1 });
 def('gameplay.dimTray', { type: 'toggle', group: 'Board', label: 'Dim pieces that do not fit', def: true });
-def('gameplay.comboBadge', { type: 'toggle', group: 'HUD', label: 'Combo badge under the score', def: true });
+def('gameplay.comboBadge', { type: 'toggle', group: 'HUD', label: 'Combo badge under the score', def: false });
 def('gameplay.confirmRestart', { type: 'toggle', group: 'HUD', label: 'Ask before restarting', def: true });
-def('gameplay.awayFromBest', { type: 'toggle', group: 'Game over', label: 'Show how far from your best', def: true });
+def('gameplay.awayFromBest', { type: 'toggle', group: 'Game over', label: 'Show how far from your best', def: false });
 def('gameplay.bestParty', { type: 'toggle', group: 'Game over', label: 'Celebrate a new best', def: true });
 def('gameplay.stats', { type: 'toggle', group: 'Stats', label: 'Keep stats', def: true });
 def('effects.speed', { type: 'slider', group: 'General', label: 'Animation speed', def: 1, min: 0.25, max: 2.5, step: 0.05, unit: 'x' });
@@ -130,13 +130,13 @@ def('effects.countSpeed', { type: 'slider', group: 'Text', label: 'Score count-u
 def('effects.beams', { type: 'toggle', group: 'Clears', label: 'Light beams on cleared lines', def: true });
 def('effects.gems', { type: 'toggle', group: 'Clears', label: 'Gems flying to the score', def: true });
 def('effects.sparkles', { type: 'toggle', group: 'Clears', label: 'Sparkles', def: true });
-def('effects.rings', { type: 'toggle', group: 'Clears', label: 'Shockwave rings', def: true });
+def('effects.rings', { type: 'toggle', group: 'Clears', label: 'Shockwave rings', def: false });
 def('effects.confetti', { type: 'toggle', group: 'Clears', label: 'Confetti', def: true });
 def('effects.cutscene', { type: 'toggle', group: 'Stages', label: 'Stage cutscene', def: true, help: 'Plays the X1, X2 scene when the colors change. The bonus is paid either way.' });
 def('effects.lights', { type: 'toggle', group: 'Stages', label: 'Light bulbs around the board', def: true });
 def('sound.on', { type: 'toggle', group: 'Sound', label: 'Sound', def: true });
 def('sound.sfx', { type: 'slider', group: 'Sound', label: 'Effects volume', def: 0.9, min: 0, max: 1, step: 0.01 });
-def('sound.music', { type: 'slider', group: 'Music', label: 'Music volume', def: 0.35, min: 0, max: 1, step: 0.01 });
+def('sound.music', { type: 'slider', group: 'Music', label: 'Music volume', def: 0, min: 0, max: 1, step: 0.01 });
 def('sound.tempo', { type: 'slider', group: 'Music', label: 'Music tempo', def: 92, min: 60, max: 140, step: 1, unit: 'bpm' });
 def('sound.musicStyle', { type: 'select', group: 'Music', label: 'Music style', def: 'dreamy', options: [{ v: 'dreamy', label: 'Dreamy' }, { v: 'bouncy', label: 'Bouncy' }, { v: 'lofi', label: 'Lo-fi' }] });
 def('sound.comboPitch', { type: 'toggle', group: 'Sound', label: 'Clears rise in pitch with the combo', def: true });
@@ -529,7 +529,7 @@ function musicNote(f, d, type, v, when){
 }
 function musicTick(){
   if (!AC || !MUS) return;
-  const vol = opt('sound.on', true) && !paused ? opt('sound.music', 0.35) : 0;
+  const vol = opt('sound.on', true) && !paused ? opt('sound.music', 0) : 0;
   MUS.gain.setTargetAtTime(vol * 0.5, AC.currentTime, 0.3);
   if (vol <= 0){ musNext = 0; return; }
   const beat = 60 / opt('sound.tempo', 92), bar = beat * 4, style = opt('sound.musicStyle', 'dreamy');

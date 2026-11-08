@@ -892,7 +892,7 @@ function def(key, spec){
 }
 const skinOpts = SKINS.map(s => ({ v: s.id, label: s.name }));
 def('visuals.preview', { type: 'custom', group: 'Block skins', label: 'Preview', render: renderPreview });
-def('visuals.mix', { type: 'select', group: 'Block skins', label: 'Block skins', def: 'piece', help: 'Which skin each block wears. Random per piece gives every new piece its own look; Classic keeps the original glossy look.', options: [
+def('visuals.mix', { type: 'select', group: 'Block skins', label: 'Block skins', def: 'classic', help: 'Which skin each block wears. Random per piece gives every new piece its own look; Classic keeps the original glossy look.', options: [
   { v: 'classic', label: 'Classic (original look)' }, { v: 'stage', label: 'One skin per stage' }, { v: 'piece', label: 'Random per piece' },
   { v: 'block', label: 'Random per block' }, { v: 'favorite', label: 'Always my favourite' }] });
 def('visuals.favorite', { type: 'select', group: 'Block skins', label: 'Favourite skin', def: 'jelly', options: skinOpts, help: 'Used when Block skins is set to "Always my favourite".' });
@@ -904,7 +904,7 @@ def('visuals.saturation', { type: 'slider', group: 'Block look', label: 'Colour 
 def('visuals.brightness', { type: 'slider', group: 'Block look', label: 'Brightness', def: 1, min: 0.7, max: 1.3, step: 0.05, unit: 'x' });
 def('visuals.anim', { type: 'toggle', group: 'Block animation', label: 'Animated blocks', def: true, help: 'Shimmer, twinkles, blinking faces, breathing and wobble.' });
 def('visuals.shimmer', { type: 'slider', group: 'Block animation', label: 'Shimmer', def: 0.6, min: 0, max: 1, step: 0.05, help: 'Light sweeping over shiny skins.' });
-def('visuals.breathe', { type: 'slider', group: 'Block animation', label: 'Breathing', def: 0.25, min: 0, max: 1, step: 0.05, help: 'Blocks on the board gently pulse.' });
+def('visuals.breathe', { type: 'slider', group: 'Block animation', label: 'Breathing', def: 0, min: 0, max: 1, step: 0.05, help: 'Blocks on the board gently pulse.' });
 def('visuals.wobble', { type: 'slider', group: 'Block animation', label: 'Placement wobble', def: 0.6, min: 0, max: 1, step: 0.05 });
 def('visuals.sparkle', { type: 'slider', group: 'Block animation', label: 'Sparkles', def: 0.7, min: 0, max: 1, step: 0.05, help: 'Twinkling stars on gems, ice, gold and galaxy.' });
 def('visuals.faceBlink', { type: 'toggle', group: 'Block animation', label: 'Faces blink', def: true });

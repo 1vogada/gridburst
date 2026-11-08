@@ -122,6 +122,17 @@ const api = {
 };
 window.GBSettings = api;
 
+// Presets, defined first so they sit at the top of the Gameplay tab. Every default in every file is
+// set to match the original game as closely as we know it; "Gridburst extras" turns on the parts we
+// added on top (random skins, combo glow, music, a dealer that helps more).
+const EXTRAS = {
+  'visuals.mix': 'piece', 'visuals.breathe': 0.25, 'gameplay.boardGlow': true, 'gameplay.comboBadge': true,
+  'gameplay.awayFromBest': true, 'effects.rings': true, 'sound.music': 0.35,
+  'algo.chainAssist': 0.8, 'algo.nearMiss': 0.6, 'algo.allClear': 0.25, 'algo.cycle': true,
+};
+api.define('gameplay.presetOriginal', { type: 'button', group: 'Preset', label: 'Match the original game', help: 'Puts every setting back to the values closest to the original game. Same as Reset all.', action: () => api.resetAll() });
+api.define('gameplay.presetExtras', { type: 'button', group: 'Preset', label: 'Gridburst extras', help: 'Random skin per piece, combo glow, music, and a dealer that keeps combos alive and sets up near-misses and big clears.', action: () => { for (const [k, v] of Object.entries(EXTRAS)) api.set(k, v); } });
+
 // Drag controls live here because dragGeom reads them. Defaults are replaced by the values measured
 // from the recorded Block Blast run once they are known.
 api.define('controls.offY', { type: 'slider', group: 'Dragging', label: 'Lift above finger', def: 1.4, min: 0, max: 5, step: 0.05, unit: 'cells', help: 'Gap between your finger and the bottom of the dragged piece.' });

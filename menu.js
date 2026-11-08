@@ -449,11 +449,14 @@ function startBg(){
   if (!animate) return;
   bg.last = performance.now();
   // 30 fps is plenty for slowly falling blocks and halves the work on weak phones
+  // a phone that needs more than ~12 ms per background frame gets a still background instead
+  let cost = 0, n = 0;
   const loop = t => {
     bg.raf = requestAnimationFrame(loop);
     if (t - bg.last < 30) return;
     const dt = Math.min(0.1, Math.max(0, (t - bg.last) / 1000)); bg.last = t;
-    drawBg(t, dt);
+    const a = performance.now(); drawBg(t, dt); cost += performance.now() - a;
+    if (++n === 40){ if (cost / n > 12){ stopBg(); return; } cost = 0; n = 0; }
   };
   bg.raf = requestAnimationFrame(loop);
 }

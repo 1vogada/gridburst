@@ -925,6 +925,9 @@ function readCfg(){
   cfg.stage = STAGE_DEF.map((d, n) => { const v = val('visuals.stageSkin.' + n); return BY[v] ? v : d; });
   cfg.pool = ORDER.filter(id => val('visuals.skin.' + id) !== false);
   if (!cfg.pool.length) cfg.pool = ORDER.slice();
+  // does anything in the current mix move on its own? (lets the game stop redrawing a still board)
+  const ids = cfg.mix === 'classic' ? ['classic'] : cfg.mix === 'favorite' ? [cfg.favorite] : cfg.mix === 'stage' ? cfg.stage : cfg.pool;
+  cfg.moving = cfg.motion && (cfg.breathe > 0 || ids.some(id => BY[id] && BY[id].fx && Object.keys(BY[id].fx).length > 0));
 }
 readCfg();
 const LOOK = /^(visuals\.(gloss|bevel|corner|saturation|brightness|anim|shimmer|breathe|wobble|sparkle|faceBlink)|access\.)/;
@@ -935,8 +938,8 @@ if (GS){
 
 // ---------- sprite cache (LRU by bytes) ----------
 const cache = new Map(); let bytes = 0;
-const MAX_BYTES = 40e6;
-let dpr = Math.min(window.devicePixelRatio || 1, 3);
+let MAX_BYTES = 24e6;   // lowered by setScale on low-resolution (weak) phones
+let dpr = Math.min(window.devicePixelRatio || 1, 3), scaleOv = 0;   // scaleOv: render scale set by the game (setScale)
 function clearCache(){ cache.clear(); bytes = 0; }
 function cget(key, make){
   let s = cache.get(key);
@@ -1128,7 +1131,7 @@ const NO = {};
 function draw(ctx, x, y, size, o){
   o = o || NO;
   if (!(size > 0)) return;
-  const d = Math.min(window.devicePixelRatio || 1, 3); if (d !== dpr){ dpr = d; clearCache(); }
+  const d = o.dpr || scaleOv || Math.min(window.devicePixelRatio || 1, 3); if (d !== dpr) dpr = d;   // sprite keys carry the pixel size, so no flush needed
   const sk = BY[o.skin] || BY.classic;
   const hex = o.hex || '#888888', pat = sk.pat ? (o.pattern || '') : '';
   const seed = (o.seed | 0) >>> 0, v = sk.n > 1 ? seed % sk.n : 0;
@@ -1208,6 +1211,10 @@ function renderPreview(el){
 window.GBSkins = {
   list: () => SKINS.map(s => ({ id: s.id, name: s.name, tags: s.tags.slice() })),
   draw, skinFor, anim,
+  // true when blocks in the current mix animate by themselves (shimmer, blinking, breathing...)
+  animated: () => !!cfg.moving,
+  // render scale (device pixels per CSS pixel) the game draws at; sprites are made at this size
+  setScale(d){ d = +d || 0; scaleOv = d; MAX_BYTES = d && d <= 1.25 ? 10e6 : 24e6; },
   symbolFor: hex => SYMBOLS[symIndex(hex)],
   clearCache,
   stats: () => ({ sprites: cache.size, bytes }),

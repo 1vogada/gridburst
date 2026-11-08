@@ -13,7 +13,7 @@
 <title>Gridburst</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 @property --bg1{syntax:'<color>';inherits:true;initial-value:#45dccf}
 @property --bg2{syntax:'<color>';inherits:true;initial-value:#2cc4b8}
@@ -37,6 +37,7 @@ button.icon:active{transform:translateY(2px);box-shadow:inset 0 0 0 2px rgba(255
 canvas{touch-action:none;display:block}
 #over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,40,.6);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);padding:16px}
 #over.show{display:flex;animation:fade .3s}
+.gb-low #over{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(6,10,40,.8)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .card{text-align:center;width:100%;max-width:340px;background:linear-gradient(var(--bg1),var(--bg3));border-radius:24px;padding:28px 20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.4),inset 0 2px 0 rgba(255,255,255,.3);text-shadow:0 2px 0 rgba(0,0,0,.18)}
 .t1{font-size:28px;font-weight:700;margin-bottom:14px}
@@ -80,16 +81,17 @@ body.bigtext .best{font-size:19px}
     <button id="omenu">Menu</button>
   </div>
 </div>
-<script src="settings.js?v=9"></script>
-<script src="pieces.js?v=9"></script>
-<script src="scoring.js?v=9"></script>
-<script src="skins.js?v=9"></script>
-<script src="menu.js?v=9"></script>
+<script src="settings.js?v=10"></script>
+<script src="pieces.js?v=10"></script>
+<script src="scoring.js?v=10"></script>
+<script src="skins.js?v=10"></script>
+<script src="menu.js?v=10"></script>
 <script>
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
-const cv = $('#c'), ctx = cv.getContext('2d');
+const cv = $('#c'), mainCtx = cv.getContext('2d');
+let ctx = mainCtx;   // swapped to the board layer's context while that layer is painted
 const N = 8;
 // 0-7: piece colours. 8+: stage skins; inside a stage every block on the board wears one of these.
 const COLORS = ['#f23d3d','#ff8c1a','#ffc61a','#3fcf3a','#16c3ee','#3566f2','#9a4dff','#ff4fa8',
@@ -158,7 +160,51 @@ function tick(real){
   if (!paused) vt += dt * opt('effects.speed', 1);
   return vt;
 }
-const P = n => Math.round(n * (RM() ? Math.min(1, opt('effects.particles', 1)) * 0.5 : opt('effects.particles', 1)));
+const P = n => Math.round(n * Q.part * (RM() ? Math.min(1, opt('effects.particles', 1)) * 0.5 : opt('effects.particles', 1)));
+
+// ---------- performance ----------
+// Quality levels: 0 high, 1 medium, 2 low. 'auto' starts from the level this phone settled on last time
+// and steps down when frames are slow (median frame time over ~1.5 s of animation above 26 ms).
+// The game also stops redrawing entirely while nothing on screen moves.
+def('effects.quality', { type: 'select', group: 'Performance', label: 'Graphics quality', def: 'auto', options: [{ v: 'auto', label: 'Auto (adapts to the phone)' }, { v: 'high', label: 'High' }, { v: 'medium', label: 'Medium' }, { v: 'low', label: 'Low (old phones)' }], help: 'Low draws at a lower resolution with fewer particles and no glow. Auto lowers it by itself when the game stutters.' });
+def('effects.maxFps', { type: 'select', group: 'Performance', label: 'Frame rate limit', def: '0', options: [{ v: '0', label: 'No limit' }, { v: '60', label: '60 fps' }, { v: '30', label: '30 fps (saves battery)' }] });
+def('effects.sleep', { type: 'toggle', group: 'Performance', label: 'Pause drawing when nothing moves', def: true, help: 'Saves battery. Turn off only if something looks frozen.' });
+def('effects.fpsMeter', { type: 'toggle', group: 'Performance', label: 'Show frame rate', def: false });
+def('effects.retest', { type: 'button', group: 'Performance', label: 'Re-test phone speed', help: 'Forgets the quality Auto picked and measures again.', action: () => { store.del(QKEY); autoLevel = 0; applyQuality(); } });
+const QKEY = 'gridburst-perf-v1';
+let autoLevel = 0; try { autoLevel = clamp(+(localStorage.getItem(QKEY) || 0) | 0, 0, 2); } catch {}
+const Q = { level: 0, part: 1, glow: true, scale: 2 };
+function applyQuality(){
+  const m = opt('effects.quality', 'auto');
+  const lv = m === 'high' ? 0 : m === 'medium' ? 1 : m === 'low' ? 2 : autoLevel;
+  const dev = window.devicePixelRatio || 1;
+  Q.level = lv;
+  Q.scale = lv === 0 ? Math.min(dev, m === 'high' ? 3 : 2) : lv === 1 ? Math.min(dev, 1.5) : 1;
+  Q.part = [1, 0.6, 0.3][lv];
+  Q.glow = lv === 0;
+  document.body.classList.toggle('gb-low', lv === 2);
+  perf.samples.length = 0; perf.skipUntil = performance.now() + 2000;
+  if (L.W) layout();
+}
+const perf = { samples: [], skipUntil: 0, lastReal: 0, drew: false, frames: 0, t0: 0, fps: 0, el: null };
+// called for every frame that actually drew, with the real time since the previous drawn frame
+function perfSample(dt, real){
+  perf.frames++;
+  if (real - perf.t0 >= 500){ perf.fps = Math.round(perf.frames * 1000 / (real - perf.t0)); perf.frames = 0; perf.t0 = real; showFps(); }
+  if (opt('effects.quality', 'auto') !== 'auto' || +opt('effects.maxFps', '0') || autoLevel >= 2 || real < perf.skipUntil || dt > 120 || document.hidden) return;
+  perf.samples.push(dt);
+  if (perf.samples.length < 90) return;
+  const a = perf.samples.slice().sort((x, y) => x - y), med = a[a.length >> 1];
+  perf.samples.length = 0;
+  if (med > 26){ autoLevel++; store.set(QKEY, String(autoLevel)); applyQuality(); }
+}
+function showFps(){
+  const on = opt('effects.fpsMeter', false);
+  if (!on){ if (perf.el){ perf.el.remove(); perf.el = null; } return; }
+  if (!perf.el){ perf.el = document.createElement('div'); perf.el.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:2000;font:600 11px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.45);padding:2px 6px;border-radius:6px;pointer-events:none'; document.body.appendChild(perf.el); }
+  perf.el.textContent = (perf.drew ? perf.fps + ' fps' : 'idle') + ' · ' + ['high', 'medium', 'low'][Q.level] + ' · ' + Q.scale + 'x';
+}
+setInterval(() => { if (!perf.drew){ perf.fps = 0; } showFps(); perf.drew = false; }, 1000);
 
 // ---------- grid logic ----------
 const emptyGrid = () => Array.from({ length: N }, () => Array(N).fill(-1));
@@ -265,7 +311,8 @@ function reset(){
 // ---------- layout ----------
 let L = {}, dpr = 1;
 function layout(){
-  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  dpr = Q.scale || Math.min(window.devicePixelRatio || 1, 2);
+  if (window.GBSkins && GBSkins.setScale) GBSkins.setScale(dpr);
   const hdr = $('header').getBoundingClientRect();
   const padB = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
   const W = Math.min(window.innerWidth, 520);
@@ -278,7 +325,7 @@ function layout(){
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   const tc = Math.min(cell * 0.5, (W / 3 - 14) / 5, th / 5.2) * opt('controls.trayScale', 1);
   L = { W, H, b, cell, bx: (W - b) / 2, by: 14, ty, th, tc };
-  sprites.clear();
+  sprites.clear(); wake();
   document.body.classList.toggle('lefty', !!opt('gameplay.leftHanded', false));
   document.body.classList.toggle('bigtext', !!opt('access.bigText', false));
 }
@@ -313,7 +360,7 @@ function mixHex(a, b, t){
 }
 function applyTheme(i, instant){
   if (i === themeIdx && !instant) return;
-  const now = clock();
+  const now = clock(); wake();
   themePrev = instant ? i : themeIdx; themeIdx = i; themeT0 = instant ? -1e9 : now;
   const t = THEMES[i], st = document.documentElement.style;
   if (instant){ st.transition = 'none'; requestAnimationFrame(() => requestAnimationFrame(() => { st.transition = ''; })); }
@@ -427,7 +474,7 @@ let comboCol = null;   // set while a long chain is alive: the board glows
 let overT = 0;   // when the board jammed, for the No Space moment
 let cut = null;   // stage-change cutscene { t0, n, bonus, to, switched, lock }
 const GRADS = { gold: GOLD, mint: ['#e4fff4', '#5cf2c0', '#13b3a0'], ice: ['#ffffff', '#cfe6ff', '#7fa8ff'] };
-function popup(text, x, y, size, color, big, kind){ popups.push({ text, x, y, size, color, big, kind, t0: clock() }); }
+function popup(text, x, y, size, color, big, kind){ popups.push({ text, x, y, size, color, big, kind, t0: clock() }); wake(); }
 function star(c, x, y, r){
   c.beginPath();
   for (let i = 0; i < 8; i++){ const a = i * Math.PI / 4, q = i % 2 ? r * 0.28 : r; c.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
@@ -585,17 +632,17 @@ cv.addEventListener('pointerdown', e => {
   if (fly && fly.i === i) fly = null;
   drag = { i, x, y, x0: x, y0: y, t0: clock(), touch: e.pointerType !== "mouse", id: e.pointerId };
   try { cv.setPointerCapture(e.pointerId); } catch {}
-  sfx.pick(); buzz(6);
+  sfx.pick(); buzz(6); wake();
 });
 cv.addEventListener('pointermove', e => {
   if (!drag || e.pointerId !== drag.id) return;
   e.preventDefault();
-  const { x, y } = pt(e); drag.x = x; drag.y = y;
+  const { x, y } = pt(e); drag.x = x; drag.y = y; wake();
 });
 function endDrag(e, cancel){
   if (!drag || (e && e.pointerId !== drag.id)) return;
   const s = cancel ? null : snapFor(drag);
-  const i = drag.i, d = drag; drag = null;
+  const i = drag.i, d = drag; drag = null; wake();
   if (s && s.ok) place(i, s.r, s.c);
   else {
     if (d.cx !== undefined) fly = { i, cx: d.cx, cy: d.cy, sz: d.sz, t0: clock() };
@@ -739,6 +786,9 @@ if (GS){
     if (k === 'controls.trayScale' || k === 'gameplay.leftHanded' || k === 'access.bigText') layout();
     if (k === 'gameplay.theme' || k === 'scoring.stages' || k.startsWith('scoring.stage')) applyTheme(themeFor(score), true);
     if (k.startsWith('visuals.') || k.startsWith('access.')) sprites.clear();
+    if (k === 'effects.quality') applyQuality();
+    if (k === 'effects.fpsMeter') showFps();
+    layerVer++; wake();
   });
 }
 
@@ -754,9 +804,9 @@ function fancyText(text, x, y, fs, stops, ink, glow, inner){
     g.addColorStop(0, stops[0]); g.addColorStop(0.5, stops[1]); g.addColorStop(1, stops[2]);
     ctx.fillStyle = g;
   } else ctx.fillStyle = stops;
-  if (glow){ ctx.shadowColor = glow; ctx.shadowBlur = fs * 0.35; }
+  if (glow && Q.glow){ ctx.shadowColor = glow; ctx.shadowBlur = fs * 0.35; }
   ctx.fillText(text, x, y);
-  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  if (glow && Q.glow){ ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; }
 }
 function crown(x, y, w){
   const h = w * 0.8, s = w / 30;
@@ -778,7 +828,7 @@ function bulbFrame(now, a){
   ctx.globalCompositeOperation = 'lighter';
   let i = 0;
   const dot = (x, y) => {
-    const on = 0.55 + 0.45 * Math.sin(now / 140 + (i++ % 2) * Math.PI);
+    const on = bulbsStill() ? 0.85 : 0.55 + 0.45 * Math.sin(now / 140 + (i++ % 2) * Math.PI);
     ctx.globalAlpha = a * on; ctx.drawImage(spr, x - cell * 0.25, y - cell * 0.25, cell * 0.5, cell * 0.5);
   };
   for (let k = 0; k < n; k++){ const t = k / n * len; dot(x0 + t, y0); dot(x0 + len, y0 + t); dot(x0 + len - t, y0 + len); dot(x0, y0 + len - t); }
@@ -933,20 +983,63 @@ function drawBanners(now){
 }
 
 // ---------- render ----------
-function frame(real){
-  const now = tick(real);
-  const { W, H, b, cell, bx, by } = L;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-  const sk = now - shakeT < 260 && !RM() ? shakeAmp * opt('effects.shake', 1) * (1 - (now - shakeT) / 260) : 0;
-  if (sk) ctx.translate((Math.random() - .5) * sk, (Math.random() - .5) * sk);
-
-  // board: thin frame, dark well, faint cell outlines
-  const tk = Math.min(1, (now - themeT0) / 1500), T0 = THEMES[themePrev], T1 = THEMES[themeIdx];
+// Redraw only when something moves or changed. stateHash covers the board, the tray and the layout;
+// wake() covers input and settings; busy() covers every running animation.
+let dirty = true, lastHash = 0, layerVer = 0, lastDrawReal = 0, idleFrames = 0, sleeping = false;
+// After a short run of still frames the loop stops completely (no work at all on an idle screen);
+// wake() or the heartbeat below restarts it. The virtual clock simply stands still meanwhile.
+function wake(){ dirty = true; if (sleeping){ sleeping = false; idleFrames = 0; lastReal = performance.now(); requestAnimationFrame(frame); } }
+setInterval(() => { if (sleeping && (stateHash() !== lastHash || busy(vt))) wake(); }, 250);
+const bulbsStill = () => Q.level >= 2 || RM();
+function stateHash(){
+  let h = 2166136261;
+  for (let r = 0; r < N; r++){ const row = grid[r]; for (let c = 0; c < N; c++) h = Math.imul(h ^ (row[c] + 2), 16777619); }
+  for (let i = 0; i < 3; i++){ const q = tray[i]; h = Math.imul(h ^ (q ? (q.seed | 0) + 1 : 0), 16777619); }
+  h = Math.imul(h ^ (over ? 7 : 3) ^ (themeIdx << 4), 16777619);
+  return (h ^ Math.round(L.W * 13 + L.H * 7 + dpr * 1000)) | 0;
+}
+function busy(now){
+  return !!(drag || fly || cut || clears.length || popups.length || parts.length || beams.length || sparks.length || rings.length
+    || banners.length || gems.length || confetti.length || placed.length || dispScore !== score || comboCol !== null
+    || now - themeT0 < 2400 || now - shakeT < 300 || now - flashT < 420 || now < spawnT + 450 || (over && now < overT + 1000)
+    || (THEMES[themeIdx].lights && opt('effects.lights', true) && !bulbsStill())
+    || (window.GBSkins && GBSkins.animated && GBSkins.animated()));
+}
+// Which tray pieces fit, recomputed only when the board changes.
+let fitKey = null, fitRes = [true, true, true];
+function trayFits(h){
+  if (h !== fitKey){ fitKey = h; fitRes = tray.map(q => !!(q && firstFit(grid, q))); }
+  return fitRes;
+}
+// The still board (frame, well, grid lines, settled blocks) painted once into its own canvas.
+const layer = document.createElement('canvas'), layerCtx = layer.getContext('2d');
+let layerKey = '';
+function boardLayer(h, now){
+  const { W, b, cell, bx, by } = L, fr = Math.max(4, cell * 0.1), lh = by + b + fr + 8;
+  const key = h + '|' + layerVer + '|' + themeIdx + '|' + W + '|' + dpr;
+  if (key !== layerKey){
+    layerKey = key;
+    const pw = Math.round(W * dpr), ph = Math.round(lh * dpr);
+    if (layer.width !== pw || layer.height !== ph){ layer.width = pw; layer.height = ph; }
+    ctx = layerCtx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, lh);
+    drawWell(now, 1);
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){
+      const v = grid[r][c]; if (v < 0) continue;
+      const sd = seeds[r][c];
+      block(skinAt(v, r, c, now), bx + c * cell, by + r * cell, cell, 1, 1, cellSeed(sd, r, c), sd);
+    }
+    ctx = mainCtx;
+  }
+  ctx.drawImage(layer, 0, 0, W, lh);
+}
+// board frame, dark well and faint cell outlines
+function drawWell(now, tk){
+  const { b, cell, bx, by } = L, T0 = THEMES[themePrev], T1 = THEMES[themeIdx];
   const fr = Math.max(4, cell * 0.1);
   ctx.fillStyle = 'rgba(0,0,0,.16)'; rr(ctx, bx - fr, by - fr + 5, b + 2 * fr, b + 2 * fr, 10); ctx.fill();
-  rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 10); ctx.fillStyle = mixHex(T0.frame, T1.frame, tk); ctx.fill();
-  rr(ctx, bx - 2, by - 2, b + 4, b + 4, 7); ctx.fillStyle = mixHex(T0.well, T1.well, tk); ctx.fill();
+  rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 10); ctx.fillStyle = tk >= 1 ? T1.frame : mixHex(T0.frame, T1.frame, tk); ctx.fill();
+  rr(ctx, bx - 2, by - 2, b + 4, b + 4, 7); ctx.fillStyle = tk >= 1 ? T1.well : mixHex(T0.well, T1.well, tk); ctx.fill();
   ctx.lineWidth = 1;
   const lineAt = (T, a) => {
     ctx.globalAlpha = a; ctx.strokeStyle = T.line; ctx.beginPath();
@@ -956,6 +1049,32 @@ function frame(real){
   if (tk < 1 && opt('gameplay.gridLines', true)) lineAt(T0, 1 - tk);
   if (opt('gameplay.gridLines', true)) lineAt(T1, tk);
   ctx.globalAlpha = 1;
+}
+function frame(real){
+  const now = tick(real);
+  const h = stateHash();
+  const go = dirty || h !== lastHash || !opt('effects.sleep', true) || (!paused && busy(now));
+  if (!go){ if (++idleFrames > 20){ sleeping = true; return; } requestAnimationFrame(frame); return; }
+  idleFrames = 0; requestAnimationFrame(frame);
+  const cap = +opt('effects.maxFps', '0');
+  if (cap && !dirty && h === lastHash && real - lastDrawReal < 1000 / cap - 3) return;
+  dirty = false; lastHash = h;
+  const fdt = real - lastDrawReal; lastDrawReal = real; perf.drew = true;
+  perfSample(fdt, real);
+  draw(now, h);
+}
+function draw(now, h){
+  const { W, H, b, cell, bx, by } = L;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const sk = now - shakeT < 260 && !RM() ? shakeAmp * opt('effects.shake', 1) * (1 - (now - shakeT) / 260) : 0;
+  if (sk) ctx.translate((Math.random() - .5) * sk, (Math.random() - .5) * sk);
+
+  const tk = Math.min(1, (now - themeT0) / 1500), T1 = THEMES[themeIdx];
+  const fr = Math.max(4, cell * 0.1);
+  // the cached board is used whenever no block is mid-animation and the theme is settled
+  const useLayer = !placed.length && now - themeT0 > 2300 && !(window.GBSkins && GBSkins.animated && GBSkins.animated());
+  if (useLayer) boardLayer(h, now); else drawWell(now, tk);
   if (T1.lights && !cut && opt('effects.lights', true)) bulbFrame(now, tk);
 
   // preview
@@ -978,6 +1097,7 @@ function frame(real){
   for (let i = placed.length - 1; i >= 0; i--) if (now - placed[i].t0 > 260) placed.splice(i, 1);
   for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){
     const v = grid[r][c]; if (v < 0) continue;
+    if (useLayer && !(hl && hl.has(r * N + c))) continue;
     let sc = 1;
     const pa = placed.find(q => q.r === r && q.c === c);
     if (pa){
@@ -1091,7 +1211,7 @@ function frame(real){
   const sp = Math.min(1, Math.max(0, (now - spawnT) / 260));
   for (let i = 0; i < 3; i++){
     const q = tray[i]; if (!q || (drag && drag.i === i) || (fly && fly.i === i)) continue;
-    const fits = !!firstFit(grid, q);
+    const fits = trayFits(h)[i];
     const ease = 1 - Math.pow(1 - Math.min(1, Math.max(0, sp * 1.6 - i * 0.25)), 3);
     if (ease <= 0) continue;
     const tc = L.tc * (0.4 + 0.6 * ease);
@@ -1185,16 +1305,15 @@ function frame(real){
     if (dispScore > score) dispScore = score;
     $('#score').textContent = dispScore;
   }
-  requestAnimationFrame(frame);
 }
 
 // ---------- API for the menu ----------
 window.GBGame = {
-  version: '2026-11-08',
+  version: '2026-11-08b',
   hasSave: () => !over && (sc.placed | 0) > 0,
   continueGame(){ if (window.GBMenu && GBMenu.isOpen()) GBMenu.close(); },
   newGame(){ reset(); if (window.GBMenu && GBMenu.isOpen()) GBMenu.close(); },
-  pause(on){ paused = !!on; if (on && drag) endDrag(null, true); if (!on) audioInit(); },
+  pause(on){ paused = !!on; if (on && drag) endDrag(null, true); if (!on) audioInit(); wake(); },
   best: () => best,
   stats(){
     const out = {};
@@ -1211,10 +1330,15 @@ window.GBGame = {
   },
   resetStats(){ life = {}; store.del(SKEY); },
 };
+// test hook for automated play-throughs, only with ?debug in the address
+if (/[?&]debug(=|&|$)/.test(location.search)) GBGame.debug = { place: (i, r, c) => { if (tray[i] && canPlace(grid, tray[i], r, c)){ place(i, r, c); wake(); return true; } return false; },
+  state: () => ({ grid, tray, score, over, sleeping, quality: Q.level, scale: dpr }), setScore: v => { score = dispScore = v; updateHud(true); } };
 
 // ---------- boot ----------
 window.addEventListener('resize', layout);
 window.addEventListener('orientationchange', () => setTimeout(layout, 200));
+document.addEventListener('visibilitychange', wake);
+applyQuality();
 layout();
 if (load()){
   applyTheme(themeFor(score), true);

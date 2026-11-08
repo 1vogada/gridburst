@@ -35,7 +35,7 @@ button.icon:active{transform:translateY(2px);box-shadow:inset 0 0 0 2px rgba(255
 .streak{height:20px;text-align:center;font-size:15px;font-weight:700;color:#fff6b0;opacity:0;transition:opacity .2s;text-shadow:0 1px 0 rgba(0,0,0,.3)}
 .streak.on{opacity:1}
 canvas{touch-action:none;display:block}
-#over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,40,.6);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);padding:16px}
+#over{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(6,10,40,.6);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);padding:16px}
 #over.show{display:flex;animation:fade .3s}
 .gb-low #over{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(6,10,40,.8)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -81,17 +81,23 @@ body.bigtext .best{font-size:19px}
     <button id="omenu">Menu</button>
   </div>
 </div>
-<script src="settings.js?v=10"></script>
-<script src="pieces.js?v=10"></script>
-<script src="scoring.js?v=10"></script>
-<script src="skins.js?v=10"></script>
-<script src="menu.js?v=10"></script>
+<script src="settings.js?v=11"></script>
+<script src="pieces.js?v=11"></script>
+<script src="scoring.js?v=11"></script>
+<script src="skins.js?v=11"></script>
+<script src="menu.js?v=11"></script>
 <script>
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
 const cv = $('#c'), mainCtx = cv.getContext('2d');
 let ctx = mainCtx;   // swapped to the board layer's context while that layer is painted
+// Full-screen overlay for the dragged piece, so it can float above the board over the score like the original.
+const ov = document.createElement('canvas'), ovCtx = ov.getContext('2d');
+ov.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:5';
+document.body.appendChild(ov);
+let ovUsed = false, ovX = 0, ovY = 0, ovBox = null, ovFull = false;   // ovBox: area drawn last frame, in canvas px
+ov.style.display = 'none';
 const N = 8;
 // 0-7: piece colours. 8+: stage skins; inside a stage every block on the board wears one of these.
 const COLORS = ['#f23d3d','#ff8c1a','#ffc61a','#3fcf3a','#16c3ee','#3566f2','#9a4dff','#ff4fa8',
@@ -126,7 +132,11 @@ def('effects.shake', { type: 'slider', group: 'General', label: 'Screen shake', 
 def('effects.flash', { type: 'slider', group: 'General', label: 'Screen flash', def: 1, min: 0, max: 2, step: 0.05, unit: 'x' });
 def('effects.popupSize', { type: 'slider', group: 'Text', label: 'Combo text size', def: 1, min: 0.5, max: 1.8, step: 0.05, unit: 'x' });
 def('effects.points', { type: 'toggle', group: 'Text', label: 'Floating +points', def: true });
-def('effects.perfect', { type: 'toggle', group: 'Text', label: '"Perfect!" on multi-line clears', def: true });
+def('effects.perfect', { type: 'toggle', group: 'Text', label: '"Perfect!" text', def: true });
+def('effects.perfectRule', { type: 'select', group: 'Text', label: '"Perfect!" shows when', def: 'fit', options: [{ v: 'fit', label: 'A piece fills its gap exactly' }, { v: 'lines', label: '2 or more lines clear at once' }], help: 'In the recording it followed snug fits, not line counts (best guess).' });
+def('effects.pointsFly', { type: 'toggle', group: 'Text', label: '+points fly into the score', def: true, help: 'The score only counts up once the points arrive, like the original.' });
+def('effects.debris', { type: 'toggle', group: 'Clears', label: 'Flying block pieces', def: false, help: 'Small blocks burst off cleared lines. The original only flashes the line.' });
+def('gameplay.hintPulse', { type: 'toggle', group: 'Board', label: 'Pulse the lines about to clear', def: false });
 def('effects.banners', { type: 'toggle', group: 'Text', label: 'Big banners (Comeback, Combo Master)', def: true });
 def('effects.countSpeed', { type: 'slider', group: 'Text', label: 'Score count-up speed', def: 1, min: 0.2, max: 5, step: 0.1, unit: 'x' });
 def('effects.beams', { type: 'toggle', group: 'Clears', label: 'Light beams on cleared lines', def: true });
@@ -300,9 +310,11 @@ function reset(){
   applyTheme(0, true);
   clears.length = 0; popups.length = 0; parts.length = 0; beams.length = 0; sparks.length = 0; rings.length = 0;
   banners.length = 0; gems.length = 0; confetti.length = 0; placed.length = 0; fly = null;
-  // the start pattern pops in along the diagonals
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (grid[r][c] >= 0) placed.push({ r, c, t0: now + 120 + (r + c) * 32, grow: true });
-  spawnT = now + 500;
+  // the board shows full of random colours, then the extra cells vanish leaving the start pattern
+  startFill = { t0: now, cells: [] };
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (grid[r][c] < 0) startFill.cells.push({ r, c, col: Math.random() * PIECE_COLORS | 0, t: 800 + Math.random() * 200 });
+  overFill = null; countHold = 0; cRun = null;
+  spawnT = now + 1350;
   $('#over').classList.remove('show');
   updateHud(true); save();
   addStat('Games started', 1);
@@ -326,6 +338,9 @@ function layout(){
   const tc = Math.min(cell * 0.5, (W / 3 - 14) / 5, th / 5.2) * opt('controls.trayScale', 1);
   L = { W, H, b, cell, bx: (W - b) / 2, by: 14, ty, th, tc };
   sprites.clear(); wake();
+  ov.width = Math.round(window.innerWidth * dpr); ov.height = Math.round(window.innerHeight * dpr);
+  const cr = cv.getBoundingClientRect(); ovX = cr.left; ovY = cr.top; ovUsed = true; ovBox = null;
+  const sr = $('#score').getBoundingClientRect(); L.sx = sr.left + sr.width / 2 - cr.left; L.sy = sr.top + sr.height / 2 - cr.top;
   document.body.classList.toggle('lefty', !!opt('gameplay.leftHanded', false));
   document.body.classList.toggle('bigtext', !!opt('access.bigText', false));
 }
@@ -472,9 +487,12 @@ let shakeT = 0, shakeAmp = 0, spawnT = 0, flashT = -1e9, flashA = 0;
 let fly = null;   // a piece flying back to the tray after an invalid drop
 let comboCol = null;   // set while a long chain is alive: the board glows
 let overT = 0;   // when the board jammed, for the No Space moment
+let overFill = null;   // cells that fill up one by one after No Space Left
+let startFill = null;   // new-game reveal: a full board whose extra cells vanish
+let countHold = 0, cRun = null;   // score count-up waits for the +points to land, then runs
 let cut = null;   // stage-change cutscene { t0, n, bonus, to, switched, lock }
 const GRADS = { gold: GOLD, mint: ['#e4fff4', '#5cf2c0', '#13b3a0'], ice: ['#ffffff', '#cfe6ff', '#7fa8ff'] };
-function popup(text, x, y, size, color, big, kind){ popups.push({ text, x, y, size, color, big, kind, t0: clock() }); wake(); }
+function popup(text, x, y, size, color, big, kind, delay = 0){ popups.push({ text, x, y, size, color, big, kind, t0: clock() + delay }); wake(); }
 function star(c, x, y, r){
   c.beginPath();
   for (let i = 0; i < 8; i++){ const a = i * Math.PI / 4, q = i % 2 ? r * 0.28 : r; c.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
@@ -657,12 +675,22 @@ document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, {
 const COMBO_MODE = 4;   // chain length at which the board starts to glow
 function startCut(n, bonus, to, now){
   // starts after the clear's own popups have had a moment; input is held for at most ~2.4 s
-  cut = { t0: now + 600, n, bonus, to, switched: false, lock: now + 2400, conf: false };
+  cut = { t0: now + 900, n, bonus, to, switched: false, lock: now + 2400, conf: false };
 }
 function place(i, r, c){
   const p = tray[i], now = clock(), before = score;
   for (const [dr, dc] of p.cells){ grid[r + dr][c + dc] = p.color; seeds[r + dr][c + dc] = p.seed | 0; placed.push({ r: r + dr, c: c + dc, t0: now }); }
   tray[i] = null;
+  // snug: every side of the piece touches a block or the board edge
+  let snug = true;
+  for (const [dr, dc] of p.cells) for (const [a, b2] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){
+    const rr2 = r + dr + a, cc2 = c + dc + b2;
+    if (rr2 < 0 || cc2 < 0 || rr2 >= N || cc2 >= N || p.cells.some(([x, y]) => x === dr + a && y === dc + b2)) continue;
+    if (grid[rr2][cc2] < 0) snug = false;
+  }
+  // small white sparkles on the newly placed cells
+  if (opt('effects.sparkles', true)) for (const [dr, dc] of p.cells) if (Math.random() < 0.6 * Q.part) sparks.push({ x: L.bx + (c + dc + 0.2 + Math.random() * 0.6) * L.cell, y: L.by + (r + dr + 0.2 + Math.random() * 0.6) * L.cell, t0: now + Math.random() * 120, life: 420, s: L.cell * 0.22 });
+  const pcx = L.bx + (c + p.w / 2) * L.cell, pcy = L.by + (r + p.h / 2) * L.cell;
   let filled = 0; for (const row of grid) for (const v of row) if (v >= 0) filled++;
   const { rows, cols } = fullLines(grid);
   const n = rows.length + cols.length;
@@ -672,11 +700,11 @@ function place(i, r, c){
     const add = (rr2, cc2) => {
       const key = rr2 * N + cc2; if (seen.has(key)) return; seen.add(key);
       const x = L.bx + cc2 * L.cell, y = L.by + rr2 * L.cell;
-      const d = (rows.includes(rr2) ? cc2 : rr2) * 22, col = skinAt(grid[rr2][cc2], rr2, cc2, now);
+      const d = (rows.includes(rr2) ? cc2 : rr2) * 8, col = skinAt(grid[rr2][cc2], rr2, cc2, now);
       const sd = seeds[rr2][cc2], cs = cellSeed(sd, rr2, cc2);
       clears.push({ x, y, col, t0: now, d, sd, cs });
       const np = P(2 + Math.min(n, 4));
-      for (let q = 0; q < np; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 9, vy: (Math.random() - .95) * 9, s: L.cell * (0.22 + Math.random() * 0.2), rot: Math.random() * 6, vr: (Math.random() - .5) * 0.4, col, sd, cs, t0: now + d, life: 650 + Math.random() * 450 });
+      if (opt('effects.debris', false)) for (let q = 0; q < np; q++) parts.push({ x: x + L.cell / 2, y: y + L.cell / 2, vx: (Math.random() - .5) * 9, vy: (Math.random() - .95) * 9, s: L.cell * (0.22 + Math.random() * 0.2), rot: Math.random() * 6, vr: (Math.random() - .5) * 0.4, col, sd, cs, t0: now + d, life: 650 + Math.random() * 450 });
       if (opt('effects.sparkles', true) && Math.random() < 0.35 * opt('effects.particles', 1)) sparks.push({ x: x + Math.random() * L.cell, y: y + Math.random() * L.cell, t0: now + d, life: 500 + Math.random() * 300, s: L.cell * (0.25 + Math.random() * 0.25) });
       // gold gems sit on the cleared line, then fly up to the score
       if (opt('effects.gems', true) && k % 2 === 0 && gems.length < 24) gems.push({ x: x + L.cell / 2, y: y + L.cell / 2, t0: now + d + 120, wait: 260 + Math.random() * 120 });
@@ -701,22 +729,23 @@ function place(i, r, c){
   if (n){
     const { W, by, b, cell } = L;
     const ps = opt('effects.popupSize', 1);
-    if (res.lineScore && opt('effects.points', true)) popup('+' + res.lineScore, cx, cy, cell * 0.85 * ps, '#fff');
+    if (res.lineScore && opt('effects.points', true)){ if (opt('effects.pointsFly', true)) popup('+' + res.lineScore, cx, cy, cell * 0.85 * ps, '#fff', false, 'pts', 720); else popup('+' + res.lineScore, cx, cy, cell * 0.85 * ps, '#fff'); }
     const comboY = clamp(cy - cell * 1.3, by + cell * 0.9, by + b - cell * 1.6);
-    if (comboText) popup(comboText, W / 2, comboY, cell * Math.min(1.25, 0.82 + (res.combo | 0) * 0.03) * ps, null, true, 'combo');
-    if (n >= 2 && banner !== 'Combo Master' && opt('effects.perfect', true)) popup('Perfect!', W / 2 - cell * 0.4, clamp(comboText ? comboY + cell * 1.5 : cy - cell * 1.5, by + cell, by + b - cell * 0.4), cell * (0.95 + Math.min(n, 5) * 0.06) * ps, null, true, 'perfect');
+    if (comboText) popup(comboText, W / 2, comboY, cell * Math.min(1.25, 0.82 + (res.combo | 0) * 0.03) * ps, null, true, 'combo', 350);
+    if (n >= 2 && banner !== 'Combo Master' && opt('effects.perfect', true) && opt('effects.perfectRule', 'fit') === 'lines') popup('Perfect!', W / 2 - cell * 0.4, clamp(comboText ? comboY + cell * 1.5 : cy - cell * 1.5, by + cell, by + b - cell * 0.4), cell * (0.95 + Math.min(n, 5) * 0.06) * ps, null, true, 'perfect', 250);
     const bn = opt('effects.banners', true);
     if (banner === 'Legendary Comeback') addStat('Legendary Comebacks', 1);
     if (banner === 'Combo Master') addStat('Combo Masters', 1);
     if (bn && banner === 'Legendary Comeback'){ const ly = !comboText ? clamp(cy, by + b * 0.3, by + b * 0.75) : comboY - cell * 1.5 > by + cell * 0.6 ? comboY - cell * 1.5 : comboY + cell * 1.5;
-      banners.push({ kind: 'legend', t0: now + 80, y: ly }); setTimeout(() => sfx.legend(), 80); burstSparks(W / 2, by + b * 0.5, b, cell * 1.4, P(24), now + 100); }
+      banners.push({ kind: 'legend', t0: now + 800, y: ly }); setTimeout(() => sfx.legend(), 800 / opt('effects.speed', 1)); burstSparks(W / 2, by + b * 0.5, b, cell * 1.4, P(24), now + 820); }
     if (bn && banner === 'Combo Master'){ banners.push({ kind: 'master', t0: now, gain }); sfx.master(); flashT = now; flashA = 0.5; burstSparks(W / 2, by + b * 0.45, b * 0.9, b * 0.7, P(40), now); }
     if (opt('gameplay.boardGlow', true) && streak >= opt('gameplay.comboFrom', 3) + 1 && comboCol === null){
       comboCol = p.color;
       for (let r2 = 0; r2 < N; r2++) for (let c2 = 0; c2 < N; c2++) if (grid[r2][c2] >= 0) placed.push({ r: r2, c: c2, t0: now + (r2 + c2) * 18 });
     }
     if (boardClear){ sfx.boardClear(); flashT = now; flashA = 0.6; popup(res.bonus ? 'Board clear! +' + res.bonus : 'Board clear!', W / 2, by + b * 0.6, cell * 0.75, 'mint', true); }
-    $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140);
+    const land = opt('effects.pointsFly', true) ? 1050 / opt('effects.speed', 1) : 0;
+    setTimeout(() => { $('#score').classList.add('bump'); setTimeout(() => $('#score').classList.remove('bump'), 140); }, land);
     const huge = n >= 3 || streak >= 4;
     if (huge){
       flashT = now; flashA = Math.max(flashA, Math.min(0.5, 0.15 + n * 0.08 + streak * 0.02));
@@ -726,6 +755,12 @@ function place(i, r, c){
     shakeT = now; shakeAmp = Math.min(3 + n * 2.5 + streak, huge ? 20 : 14);
     sfx.clear(n, Math.max(1, streak)); buzz(huge ? [30, 30, 40, 30, 60] : n >= 2 ? [20, 30, 30] : 18);
   } else { sfx.place(); buzz(8); }
+  // "Perfect!" on a snug fit (the trigger seen in the recording), with a small burst at the piece
+  if (snug && banner !== 'Combo Master' && opt('effects.perfect', true) && opt('effects.perfectRule', 'fit') === 'fit'){
+    popup('Perfect!', clamp(pcx, L.cell * 2.2, L.W - L.cell * 2.2), clamp(pcy - L.cell * 1.2, L.by + L.cell * 0.8, L.by + L.b - L.cell * 0.6), L.cell * 1.0 * opt('effects.popupSize', 1), null, true, 'perfect', 250);
+    burstSparks(pcx, pcy, L.cell * p.w, L.cell * p.h, P(8), now + 200);
+  }
+  countHold = n && opt('effects.pointsFly', true) ? now + 1050 : now;
   if (sc.chain < opt('gameplay.comboFrom', 3) + 1 || !opt('gameplay.boardGlow', true)) comboCol = null;
   if (score > best){ best = score; store.set(BKEY, String(best)); }
   if (intro && score >= INTRO_END) intro = false;
@@ -738,19 +773,22 @@ function place(i, r, c){
   else if (stageUp > 0) startCut(stageUp, stageBonus, ti, now);
   else if (cut && !cut.switched) cut.to = ti;
   else applyTheme(ti);
-  if (tray.every(x => !x)){ tray = newSet(); spawnT = cut ? cut.t0 + 1400 : now; }
+  if (tray.every(x => !x)){ tray = newSet(); spawnT = cut ? cut.t0 + 1400 : now + 200; }
   updateHud();
   if (!tray.some(q => q && firstFit(grid, q))){
     over = true; store.del(KEY);
     const wait = cut ? cut.t0 - now + 2600 : 350; overT = now + wait;
-    setTimeout(() => { popup('No Space!', L.W / 2, L.by + L.b * 0.5, L.cell * 1.3, 'ice', true); sfx.bad(); buzz(30); }, wait);
-    setTimeout(gameOver, wait + 1550);
+    // No Space Left: a bar replaces the tray and the board fills up block by block, then the card
+    overFill = [];
+    for (let r2 = 0; r2 < N; r2++) for (let c2 = 0; c2 < N; c2++) if (grid[r2][c2] < 0) overFill.push({ r: r2, c: c2, col: Math.random() * PIECE_COLORS | 0, t: 100 + Math.random() * 500 });
+    setTimeout(() => { sfx.bad(); buzz(30); wake(); }, wait);
+    setTimeout(gameOver, wait + 2000);
   } else save();
 }
 function gameOver(){
   const nb = score > bestAtStart && score > 0;
   sfx.over(); buzz([40, 60, 80]);
-  $('#oscore').textContent = score;
+  { const t0 = performance.now(), fin = score; const up = () => { const k = Math.min(1, (performance.now() - t0) / 1000); $('#oscore').textContent = Math.round(fin * k); if (k < 1) requestAnimationFrame(up); }; up(); }
   $('#obest').textContent = best;
   $('#newbest').classList.toggle('on', nb);
   const gap = bestAtStart - score;
@@ -878,7 +916,7 @@ function drawCut(now){
   const { W, b, cell, bx, by } = L, k = now - cut.t0;
   if (k < 0) return;
   if (!cut.conf){ cut.conf = true; spawnConfetti(now, 70); sfx.stage(); buzz([20, 40, 20, 40, 60]); flashT = now + 650; flashA = 0.45; }
-  if (!cut.switched && k > 950){ cut.switched = true; applyTheme(cut.to); }
+  if (!cut.switched && k > 300){ cut.switched = true; applyTheme(cut.to); }
   const T = 2700;
   if (k > T){ cut = null; return; }
   const fade = k > T - 450 ? (T - k) / 450 : 1;
@@ -1001,7 +1039,7 @@ function stateHash(){
 function busy(now){
   return !!(drag || fly || cut || clears.length || popups.length || parts.length || beams.length || sparks.length || rings.length
     || banners.length || gems.length || confetti.length || placed.length || dispScore !== score || comboCol !== null
-    || now - themeT0 < 2400 || now - shakeT < 300 || now - flashT < 420 || now < spawnT + 450 || (over && now < overT + 1000)
+    || now - themeT0 < 2400 || now - shakeT < 300 || now - flashT < 420 || now < spawnT + 450 || (over && now < overT + 2200) || (startFill && now < startFill.t0 + 1300) || now < countHold + 50
     || (THEMES[themeIdx].lights && opt('effects.lights', true) && !bulbsStill())
     || (window.GBSkins && GBSkins.animated && GBSkins.animated()));
 }
@@ -1122,7 +1160,7 @@ function draw(now, h){
     }
   }
   if (hl && opt('gameplay.lineHint', true)){
-    const pulse = 0.18 + Math.sin(now / 90) * 0.1;
+    const pulse = opt('gameplay.hintPulse', false) ? 0.18 + Math.sin(now / 90) * 0.1 : 0;
     ctx.fillStyle = `rgba(255,255,255,${pulse})`;
     hl.forEach(key => { const r = key / N | 0, c = key % N; rr(ctx, bx + c * cell + 2, by + r * cell + 2, cell - 4, cell - 4, cell * 0.1); ctx.fill(); });
   }
@@ -1201,24 +1239,53 @@ function draw(now, h){
   const fm = RM() ? 0 : opt('effects.flash', 1);
   if (fk >= 0 && fk < 1 && fm > 0){ ctx.fillStyle = `rgba(255,255,255,${Math.min(0.9, flashA * fm) * (1 - fk)})`; rr(ctx, bx - fr, by - fr, b + 2 * fr, b + 2 * fr, 10); ctx.fill(); }
 
-  // No Space: the board dims before the Game Over card
-  if (over && now > overT){
-    ctx.fillStyle = `rgba(5,8,30,${Math.min(0.5, (now - overT) / 900 * 0.5)})`;
-    rr(ctx, bx - 2, by - 2, b + 4, b + 4, 7); ctx.fill();
+  // new game: the extra cells of a full board vanish
+  if (startFill){
+    const k = now - startFill.t0;
+    if (k > 1100) startFill = null;
+    else for (const q of startFill.cells){
+      const v = (k - q.t) / 120; if (v >= 1) continue;
+      block(q.col, bx + q.c * cell, by + q.r * cell, cell, 1, v > 0 ? 1 - easeOut(v) : 1, cellSeed(q.r * 9 + q.c, q.r, q.c), q.r * 9 + q.c);
+    }
+  }
+  // No Space Left: the board fills up block by block
+  if (over && overFill && now > overT){
+    const k = now - overT;
+    for (const q of overFill){ const v = (k - q.t) / 140; if (v > 0) block(q.col, bx + q.c * cell, by + q.r * cell, cell, 1, easeBack(v), cellSeed(q.r * 9 + q.c, q.r, q.c), q.r * 9 + q.c); }
   }
   // tray
   const slotW = W / 3, tyc = L.ty + L.th / 2;
-  const sp = Math.min(1, Math.max(0, (now - spawnT) / 260));
+  const noSpace = over && overFill && now > overT;
+  if (noSpace){
+    const k = easeBack((now - overT) / 300), bw = Math.min(W - 24, b * 1.02), bh = cell * 1.1;
+    ctx.save(); ctx.translate(W / 2, tyc); ctx.scale(Math.max(0.01, k), Math.max(0.01, k));
+    ctx.fillStyle = 'rgba(10,14,50,.35)'; rr(ctx, -bw / 2, -bh / 2 + 4, bw, bh, bh / 2); ctx.fill();
+    ctx.fillStyle = '#ffffff'; rr(ctx, -bw / 2, -bh / 2, bw, bh, bh / 2); ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    fancyText('No Space Left', 0, 0, bh * 0.5, ['#ff8fa8', '#ff3d6a', '#e0164a'], 'rgba(255,255,255,0)');
+    ctx.restore();
+  }
   for (let i = 0; i < 3; i++){
-    const q = tray[i]; if (!q || (drag && drag.i === i) || (fly && fly.i === i)) continue;
+    const q = tray[i]; if (noSpace || !q || (drag && drag.i === i) || (fly && fly.i === i)) continue;
     const fits = trayFits(h)[i];
-    const ease = 1 - Math.pow(1 - Math.min(1, Math.max(0, sp * 1.6 - i * 0.25)), 3);
+    const ease = 1 - Math.pow(1 - clamp((now - spawnT - i * 75) / 130, 0, 1), 3);
     if (ease <= 0) continue;
     const tc = L.tc * (0.4 + 0.6 * ease);
     const ox = (i + 0.5) * slotW - q.w * tc / 2, oy = tyc - q.h * tc / 2;
     const dim = fits || !opt('gameplay.dimTray', true) ? ease : 0.3 * ease;
     for (const [dr, dc] of q.cells) block(skinNow(q.color), ox + dc * tc, oy + dr * tc, tc, dim, 1, cellSeed(q.seed | 0, dr, dc), q.seed | 0);
   }
+  // dragged piece and fly-back go on the overlay
+  const ptsFly = popups.some(q => q.kind === 'pts' && now >= q.t0);
+  if (drag || fly || ovUsed || ptsFly){
+    ovCtx.setTransform(dpr, 0, 0, dpr, ovX * dpr, ovY * dpr);
+    if (ovBox && !ovFull) ovCtx.clearRect(ovBox[0] - 2, ovBox[1] - 2, ovBox[2] + 4, ovBox[3] + 4);
+    else { ovCtx.setTransform(1, 0, 0, 1, 0, 0); ovCtx.clearRect(0, 0, ov.width, ov.height); }
+    ovBox = null; ovFull = false; ovUsed = !!(drag || fly || ptsFly);
+    const disp = ovUsed ? '' : 'none'; if (ov.style.display !== disp) ov.style.display = disp;
+    ovCtx.setTransform(dpr, 0, 0, dpr, ovX * dpr, ovY * dpr);
+  }
+  ctx = ovCtx;
   if (fly){
     const q = tray[fly.i], k0 = (now - fly.t0) / 230;
     if (!q || k0 >= 1) fly = null;
@@ -1226,6 +1293,7 @@ function draw(now, h){
       const k = 1 - Math.pow(1 - k0, 3), sz = fly.sz + (L.tc - fly.sz) * k;
       const cx = fly.cx + ((fly.i + 0.5) * slotW - fly.cx) * k, cy = fly.cy + (tyc - fly.cy) * k;
       for (const [dr, dc] of q.cells) block(skinNow(q.color), cx - q.w * sz / 2 + dc * sz, cy - q.h * sz / 2 + dr * sz, sz, 1, 1, cellSeed(q.seed | 0, dr, dc), q.seed | 0);
+      ovBox = [cx - q.w * sz / 2, cy - q.h * sz / 2, q.w * sz, q.h * sz];
     }
   }
   // dragged piece: grows from tray size to board size as it lifts toward the finger
@@ -1236,11 +1304,15 @@ function draw(now, h){
     const cx = tcx + (s.left + p.w * cell / 2 - tcx) * k, cy = tcy + (s.top + p.h * cell / 2 - tcy) * k;
     const ox = cx - p.w * sz / 2, oy = cy - p.h * sz / 2;
     drag.cx = cx; drag.cy = cy; drag.sz = sz;
+    const bx2 = ox + p.w * sz + sz * 0.2, by2 = oy + p.h * sz + sz * 0.3;
+    if (ovBox){ const x1 = Math.min(ovBox[0], ox), y1 = Math.min(ovBox[1], oy); ovBox = [x1, y1, Math.max(ovBox[0] + ovBox[2], bx2) - x1, Math.max(ovBox[1] + ovBox[3], by2) - y1]; }
+    else ovBox = [ox, oy, bx2 - ox, by2 - oy];
     ctx.fillStyle = 'rgba(4,8,40,.3)';
     for (const [dr, dc] of p.cells){ rr(ctx, ox + dc * sz + sz * 0.08, oy + dr * sz + sz * 0.2, sz * 0.92, sz * 0.92, sz * 0.1); ctx.fill(); }
     for (const [dr, dc] of p.cells) block(pcol, ox + dc * sz, oy + dr * sz, sz, 1, 1, cellSeed(p.seed | 0, dr, dc), p.seed | 0);
   }
 
+  ctx = mainCtx;
   // confetti
   for (let i = confetti.length - 1; i >= 0; i--){
     const q = confetti[i], t = now - q.t0;
@@ -1259,8 +1331,21 @@ function draw(now, h){
   const T = THEMES[themeIdx];
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   for (let i = popups.length - 1; i >= 0; i--){
-    const q = popups[i], dur = q.big ? 1250 : 900, k = (now - q.t0) / dur;
+    const q = popups[i], dur = q.kind === 'pts' ? 340 : q.kind === 'combo' ? 700 : q.kind === 'perfect' ? 750 : q.big ? 1250 : 900, k = (now - q.t0) / dur;
     if (k > 1){ popups.splice(i, 1); continue; }
+    if (k < 0) continue;
+    if (q.kind === 'pts'){
+      // pops in at the cleared lines, holds, then flies into the score (on the overlay: it leaves the canvas)
+      const f = clamp((k - 0.68) / 0.32, 0, 1), e = f * f;
+      const x = q.x + ((L.sx || W / 2) - q.x) * e, y = q.y + ((L.sy || -cell) - q.y) * e;
+      const sc2 = (k < 0.12 ? 0.3 + k / 0.12 * 0.95 : k < 0.24 ? 1.25 - (k - 0.12) / 0.12 * 0.25 : 1) * (1 - e * 0.45);
+      const keep = ctx; ctx = ovCtx; ovFull = true;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+      ctx.globalAlpha = f > 0.85 ? (1 - f) / 0.15 : 1;
+      fancyText(q.text, x, y, q.size * sc2, '#fff', 'rgba(20,14,60,.8)');
+      ctx.globalAlpha = 1; ctx = keep;
+      continue;
+    }
     const sc = k < 0.12 ? 0.3 + k / 0.12 * 0.95 : (k < 0.24 ? 1.25 - (k - 0.12) / 0.12 * 0.25 : 1);
     ctx.globalAlpha = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1;
     const fs = q.size * sc;
@@ -1300,16 +1385,19 @@ function draw(now, h){
   if (cut) drawCut(now);
 
   // score count-up
-  if (dispScore !== score){
-    dispScore += Math.max(1, Math.round((score - dispScore) * Math.min(1, 0.18 * opt('effects.countSpeed', 1))));
-    if (dispScore > score) dispScore = score;
+  // the counter runs once the points have landed, faster for bigger gains, then snaps to the total
+  if (dispScore !== score && now >= countHold){
+    if (!cRun || cRun.to !== score) cRun = { from: dispScore, to: score, t0: now, dur: Math.min(1200, 200 + Math.abs(score - dispScore) * 0.5) / opt('effects.countSpeed', 1) };
+    const k = Math.min(1, (now - cRun.t0) / cRun.dur);
+    dispScore = k >= 1 ? score : Math.round(cRun.from + (cRun.to - cRun.from) * k);
     $('#score').textContent = dispScore;
   }
+  if (dispScore === score) cRun = null;
 }
 
 // ---------- API for the menu ----------
 window.GBGame = {
-  version: '2026-11-08b',
+  version: '2026-11-08c',
   hasSave: () => !over && (sc.placed | 0) > 0,
   continueGame(){ if (window.GBMenu && GBMenu.isOpen()) GBMenu.close(); },
   newGame(){ reset(); if (window.GBMenu && GBMenu.isOpen()) GBMenu.close(); },
@@ -1332,7 +1420,7 @@ window.GBGame = {
 };
 // test hook for automated play-throughs, only with ?debug in the address
 if (/[?&]debug(=|&|$)/.test(location.search)) GBGame.debug = { place: (i, r, c) => { if (tray[i] && canPlace(grid, tray[i], r, c)){ place(i, r, c); wake(); return true; } return false; },
-  state: () => ({ grid, tray, score, over, sleeping, quality: Q.level, scale: dpr }), setScore: v => { score = dispScore = v; updateHud(true); } };
+  state: () => ({ grid, tray, score, over, sleeping, quality: Q.level, scale: dpr, ovBox, ovUsed, drag: !!drag, ctxIsMain: ctx === mainCtx, ovT: ovCtx.getTransform().toString() }), setScore: v => { score = dispScore = v; updateHud(true); } };
 
 // ---------- boot ----------
 window.addEventListener('resize', layout);

@@ -16,7 +16,7 @@
 //   combo master the 16th clear of a chain (on-screen combo 15) shows "Combo Master" instead of "Combo 15";
 //               points are normal (seen twice: +5544 = 924 x 6 lines, +1848 = 924 x 2 lines)
 //   stages      at 28000, 31500, then every 3500 points the game plays a stage cutscene "X1", "X2", ...
-//               and adds about 4.9% of the score (seen: ~1400 at 28.7k, +1560 at 31.7k)
+//               and adds about 4.9% of the score, capped at 1750 (seen: ~1400 at 28.7k, +1560 at 31.7k)
 //
 //   GBScore.init()         -> st, a JSON-serialisable object the game saves and passes back
 //   GBScore.place(st, ev)  -> { gain, lineScore, bonus, combo, comboText, chain } after one placement
@@ -56,6 +56,7 @@ if (S){
   d('stageStart', { type: 'slider', group: 'Stages', label: 'First stage at', def: 28000, min: 1000, max: 100000, step: 500, unit: 'pts' });
   d('stageEvery', { type: 'slider', group: 'Stages', label: 'Next stage every', def: 3500, min: 500, max: 50000, step: 500, unit: 'pts' });
   d('stageBonus', { type: 'slider', group: 'Stages', label: 'Stage bonus', def: 4.9, min: 0, max: 30, step: 0.1, unit: '%', help: 'Bonus as a share of your score.' });
+  d('stageBonusMax', { type: 'slider', group: 'Stages', label: 'Stage bonus cap', def: 1750, min: 0, max: 50000, step: 50, unit: 'pts', help: 'Largest stage bonus. Keeps scores from running away in very long games.' });
 }
 const get = (k, def) => { const v = S && S.get('scoring.' + k); return v === undefined ? def : v; };
 const KEEP = () => get('keep', 2);   // non-clearing placements a chain survives
@@ -95,7 +96,12 @@ function place(st, ev){
   const before = ev.score | 0;
   if (st.stage < 0) st.stage = stageOf(before);
   const n = get('stages', true) ? stageOf(before + gain) : st.stage;
-  if (n > st.stage){ st.stage = n; stageUp = n; stageBonus = Math.round((before + gain) * get('stageBonus', 4.9) / 100); gain += stageBonus; }
+  if (n > st.stage){
+    stageUp = n;
+    stageBonus = Math.min(get('stageBonusMax', 1750), Math.round((before + gain) * get('stageBonus', 4.9) / 100));
+    gain += stageBonus;
+    st.stage = get('stages', true) ? stageOf(before + gain) : n;   // a bonus that crosses the next stage line never triggers another bonus
+  }
   else if (n < st.stage) st.stage = n;   // stage settings were changed
   return {
     gain, lineScore, bonus, comeback, banner, stageUp, stageBonus,
